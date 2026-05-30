@@ -303,6 +303,116 @@ impl BeneficiaryManager {
         result
     }
 
+    /// Search and filter beneficiaries with cursor-based pagination.
+    ///
+    /// Parameters
+    /// ----------
+    /// - `disaster_id`      – required; scope all results to this disaster.
+    /// - `search`           – substring match against `id` and `name`
+    ///                        (empty string = no text filter).
+    /// - `location_filter`  – exact match on `location`
+    ///                        (empty string = no location filter).
+    /// - `active_only`      – when `true` only active beneficiaries are returned.
+    /// - `min_trust_score`  – inclusive lower bound on `trust_score` (0 = no filter).
+    /// - `cursor_ts`        – `registration_date` of last item on previous page (0 = first page).
+    /// - `cursor_id`        – `id` of last item on previous page ("" = first page).
+    /// - `limit`            – page size, clamped to [1, 100], default 20.
+    ///
+    /// Returns `(page, next_ts, next_id)`.  `next_ts == 0 && next_id == ""`
+    /// means no more data.
+    pub fn search_beneficiaries_paginated(
+        env: Env,
+        disaster_id: String,
+        search: String,
+        location_filter: String,
+        active_only: bool,
+        min_trust_score: u32,
+        cursor_ts: u64,
+        cursor_id: String,
+        limit: u32,
+    ) -> (Vec<BeneficiaryProfile>, u64, String) {
+        let page_size = if limit == 0 { 20 } else if limit > 100 { 100 } else { limit };
+        let empty_str = String::from_str(&env, "");
+
+        let beneficiaries_key = Symbol::new(&env, "beneficiaries");
+        let beneficiaries: Map<String, BeneficiaryProfile> = env.storage().instance()
+            .get(&beneficiaries_key)
+            .unwrap_or(Map::new(&env));
+
+        // Collect matching profiles
+        let mut all: Vec<BeneficiaryProfile> = Vec::new(&env);
+        for (_, profile) in beneficiaries.iter() {
+            if profile.disaster_id != disaster_id {
+                continue;
+            }
+            if active_only && !profile.is_active {
+                continue;
+            }
+            if profile.trust_score < min_trust_score {
+                continue;
+            }
+            if location_filter != empty_str && profile.location != location_filter {
+                continue;
+            }
+            // Substring search on id and name (case-sensitive in no_std)
+            if search != empty_str {
+                let id_match = profile.id.to_string().contains(search.to_string().as_str());
+                let name_match = profile.name.to_string().contains(search.to_string().as_str());
+                if !id_match && !name_match {
+                    continue;
+                }
+            }
+            all.push_back(profile);
+        }
+
+        // Insertion sort by (registration_date ASC, id ASC)
+        let len = all.len();
+        for i in 1..len {
+            let mut j = i;
+            while j > 0 {
+                let a = all.get(j - 1).unwrap();
+                let b = all.get(j).unwrap();
+                let swap = if a.registration_date != b.registration_date {
+                    a.registration_date > b.registration_date
+                } else {
+                    a.id > b.id
+                };
+                if swap {
+                    all.set(j - 1, b.clone());
+                    all.set(j, a.clone());
+                    j -= 1;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        // Cursor seek
+        let is_first_page = cursor_ts == 0 && cursor_id == empty_str;
+        let mut page: Vec<BeneficiaryProfile> = Vec::new(&env);
+        let mut past_cursor = is_first_page;
+
+        for profile in all.iter() {
+            if !past_cursor {
+                if profile.registration_date == cursor_ts && profile.id == cursor_id {
+                    past_cursor = true;
+                }
+                continue;
+            }
+            page.push_back(profile.clone());
+            if page.len() >= page_size {
+                break;
+            }
+        }
+
+        if page.len() < page_size {
+            (page, 0u64, empty_str)
+        } else {
+            let last = page.get(page.len() - 1).unwrap();
+            (page, last.registration_date, last.id.clone())
+        }
+    }
+
     /// Update beneficiary location (for tracking displacement)
     pub fn update_location(
         env: Env,

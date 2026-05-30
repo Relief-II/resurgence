@@ -12,7 +12,12 @@ import {
   BeneficiaryProfile, 
   VerificationFactor, 
   RecoveryCode,
-  MerchantOnboardingRequest
+  MerchantOnboardingRequest,
+  PaginatedResponse,
+  PaginationOptions,
+  BeneficiarySearchOptions,
+  FundSearchOptions,
+  EmergencyFund,
 } from './types';
 import { createHash } from 'crypto-js';
 
@@ -470,6 +475,130 @@ export class BeneficiaryClient {
         return 'Standalone Network ; February 2017';
       default:
         throw new Error('Unsupported network');
+    }
+  }
+
+  // ─── Search / Filter ────────────────────────────────────────────────────────
+
+  /**
+   * Search and filter beneficiaries with cursor-based pagination.
+   *
+   * Validates all inputs before forwarding to the contract:
+   * - `limit` must be 1–100 (default 20)
+   * - `minTrustScore` must be 0–100
+   * - `search` and `locationFilter` are trimmed; HTML-special chars are stripped
+   *   to prevent injection via display layers.
+   */
+  async searchBeneficiaries(
+    disasterId: string,
+    options: BeneficiarySearchOptions = {}
+  ): Promise<PaginatedResponse<BeneficiaryProfile>> {
+    const {
+      cursor = '',
+      limit = 20,
+      search = '',
+      locationFilter = '',
+      activeOnly = true,
+      minTrustScore = 0,
+    } = options;
+
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new Error('limit must be an integer between 1 and 100');
+    }
+    if (!Number.isInteger(minTrustScore) || minTrustScore < 0 || minTrustScore > 100) {
+      throw new Error('minTrustScore must be an integer between 0 and 100');
+    }
+
+    const sanitize = (s: string) => s.trim().replace(/[<>"'&]/g, '');
+    const cleanSearch = sanitize(search);
+    const cleanLocation = sanitize(locationFilter);
+
+    if (cleanSearch.length > 200) {
+      throw new Error('search must be 200 characters or fewer');
+    }
+
+    // Decode opaque cursor "<ts>:<id>"
+    let cursorTs = 0;
+    let cursorId = '';
+    if (cursor) {
+      const sep = cursor.indexOf(':');
+      if (sep !== -1) {
+        cursorTs = parseInt(cursor.slice(0, sep), 10) || 0;
+        cursorId = cursor.slice(sep + 1);
+      }
+    }
+
+    try {
+      const result = await this.contract.call(
+        'search_beneficiaries_paginated',
+        nativeToScVal(disasterId),
+        nativeToScVal(cleanSearch),
+        nativeToScVal(cleanLocation),
+        nativeToScVal(activeOnly),
+        nativeToScVal(minTrustScore),
+        nativeToScVal(cursorTs),
+        nativeToScVal(cursorId),
+        nativeToScVal(limit),
+      );
+
+      const [beneficiaries, nextTs, nextId]: [BeneficiaryProfile[], number, string] =
+        scValToNative(result.result.retval);
+
+      const nextCursor = (nextTs === 0 && (!nextId || nextId === ''))
+        ? null
+        : `${nextTs}:${nextId}`;
+
+      return { items: beneficiaries, nextCursor, hasMore: nextCursor !== null };
+    } catch (error) {
+      console.error('searchBeneficiaries failed:', error);
+      return { items: [], nextCursor: null, hasMore: false };
+    }
+  }
+
+  /**
+   * Search and filter emergency funds.
+   *
+   * Validates all inputs:
+   * - `search` and `disasterType` are trimmed and sanitized
+   * - `createdAfter` / `createdBefore` must be non-negative; after ≤ before when both set
+   */
+  async searchFunds(options: FundSearchOptions = {}): Promise<EmergencyFund[]> {
+    const {
+      search = '',
+      disasterType = '',
+      activeOnly = false,
+      createdAfter = 0,
+      createdBefore = 0,
+    } = options;
+
+    const sanitize = (s: string) => s.trim().replace(/[<>"'&]/g, '');
+    const cleanSearch = sanitize(search);
+    const cleanType = sanitize(disasterType);
+
+    if (cleanSearch.length > 200) {
+      throw new Error('search must be 200 characters or fewer');
+    }
+    if (createdAfter < 0 || createdBefore < 0) {
+      throw new Error('createdAfter and createdBefore must be non-negative');
+    }
+    if (createdAfter > 0 && createdBefore > 0 && createdAfter > createdBefore) {
+      throw new Error('createdAfter must be less than or equal to createdBefore');
+    }
+
+    try {
+      const result = await this.contract.call(
+        'search_funds',
+        nativeToScVal(cleanSearch),
+        nativeToScVal(cleanType),
+        nativeToScVal(activeOnly),
+        nativeToScVal(createdAfter),
+        nativeToScVal(createdBefore),
+      );
+
+      return scValToNative(result.result.retval) as EmergencyFund[];
+    } catch (error) {
+      console.error('searchFunds failed:', error);
+      return [];
     }
   }
 }
