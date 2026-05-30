@@ -118,6 +118,17 @@ impl AidRegistry {
         // Verify admin authorization
         admin.require_auth();
         
+        // Input validation
+        if fund_id.len() == 0 {
+            panic_with_error!(&env, "fund_id must not be empty");
+        }
+        if total_amount <= U256::from_u64(0) {
+            panic_with_error!(&env, "total_amount must be positive");
+        }
+        if expires_at <= env.ledger().timestamp() {
+            panic_with_error!(&env, "expires_at must be in the future");
+        }
+        
         // Create fund structure
         let fund = EmergencyFund {
             id: fund_id.clone(),
