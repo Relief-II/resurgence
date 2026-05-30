@@ -168,10 +168,10 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">Emergency Fund Deployer</h1>
-        <p className="text-gray-600 mb-6">
+    <div className="max-w-6xl mx-auto p-6 bg-gray-100 dark:bg-gray-900 min-h-screen">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Emergency Fund Deployer</h1>
+        <p className="text-gray-600 dark:text-gray-300 mb-6">
           Rapid deployment and monitoring of emergency relief funds
         </p>
 
@@ -199,8 +199,8 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
 
         {/* Create Fund Form */}
         {showCreateForm && (
-          <div className="bg-gray-50 p-6 rounded-lg mb-6">
-            <h2 className="text-xl font-semibold mb-4">Create Emergency Fund</h2>
+          <div className="bg-gray-50 dark:bg-gray-700 p-6 rounded-lg mb-6">
+            <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Create Emergency Fund</h2>
             <form onSubmit={handleCreateFund} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <input
@@ -294,8 +294,8 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
 
         {/* Rapid Response Form */}
         {showRapidForm && (
-          <div className="bg-red-50 p-6 rounded-lg mb-6">
-            <h2 className="text-xl font-semibold mb-4">Rapid Disaster Response</h2>
+          <div className="bg-red-50 dark:bg-red-900/20 p-6 rounded-lg mb-6">
+            <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Rapid Disaster Response</h2>
             <form onSubmit={handleRapidDeployment} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <input
@@ -381,7 +381,7 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
           ) : (
             <div className="grid gap-4">
               {funds.map((fund) => (
-                <div key={fund.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                <div key={fund.id} className="border dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow bg-white dark:bg-gray-700">
                   <div className="flex justify-between items-start">
                     <div>
                       <h3 className="font-semibold text-lg">{fund.name}</h3>
@@ -431,9 +431,9 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
 
         {/* Fund Details Modal */}
         {selectedFund && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
-            <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-screen overflow-y-auto">
-              <h2 className="text-2xl font-bold mb-4">{selectedFund.name}</h2>
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-screen overflow-y-auto">
+              <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">{selectedFund.name}</h2>
               <div className="space-y-4">
                 <div>
                   <h3 className="font-semibold">Fund Details</h3>
