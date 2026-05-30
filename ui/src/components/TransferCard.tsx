@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { TransferClient, ConditionalTransfer, SpendingRule, NetworkConfig } from '../../sdk/src/types';
+import { TransferClient, ConditionalTransfer, SpendingRule, NetworkConfig, TransferTransaction } from '../../sdk/src/types';
+import { ExportButton, conditionalTransferFields, transferTransactionFields } from '../export';
 
 interface TransferCardProps {
   transferClient: TransferClient;
@@ -17,6 +18,9 @@ export const TransferCard: React.FC<TransferCardProps> = ({
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showSpendForm, setShowSpendForm] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<ConditionalTransfer | null>(null);
+  const [transactions, setTransactions] = useState<TransferTransaction[]>([]);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [transactionsError, setTransactionsError] = useState<string | null>(null);
 
   // Create transfer form state
   const [createForm, setCreateForm] = useState({
@@ -58,6 +62,21 @@ export const TransferCard: React.FC<TransferCardProps> = ({
       console.error('Failed to load transfers:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadTransferTransactions = async (transferId: string) => {
+    setTransactionsLoading(true);
+    setTransactionsError(null);
+    try {
+      const txns = await transferClient.getTransactions(transferId);
+      setTransactions(txns);
+    } catch (error) {
+      console.error('Failed to load transactions:', error);
+      setTransactionsError('Failed to load transaction history. Please try again.');
+      setTransactions([]);
+    } finally {
+      setTransactionsLoading(false);
     }
   };
 
@@ -499,7 +518,15 @@ export const TransferCard: React.FC<TransferCardProps> = ({
 
         {/* Transfers List */}
         <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Active Transfers</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">Active Transfers</h2>
+            <ExportButton
+              rows={transfers}
+              fields={conditionalTransferFields}
+              filenamePrefix="transfers"
+              label="Export"
+            />
+          </div>
           
           {loading ? (
             <div className="text-center py-4">Loading...</div>
@@ -546,7 +573,11 @@ export const TransferCard: React.FC<TransferCardProps> = ({
                       
                       <div className="mt-4 space-x-2">
                         <button
-                          onClick={() => setSelectedTransfer(transfer)}
+                          onClick={() => {
+                            setSelectedTransfer(transfer);
+                            setTransactions([]);
+                            setTransactionsError(null);
+                          }}
                           className="bg-blue-500 text-white px-3 py-1 text-sm rounded hover:bg-blue-600"
                         >
                           Details
@@ -633,7 +664,7 @@ export const TransferCard: React.FC<TransferCardProps> = ({
                   <h3 className="font-semibold">Actions</h3>
                   <div className="mt-2 space-x-2">
                     <button
-                      onClick={() => transferClient.getTransactions(selectedTransfer.id)}
+                      onClick={() => loadTransferTransactions(selectedTransfer.id)}
                       className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
                     >
                       View Transactions
@@ -645,6 +676,48 @@ export const TransferCard: React.FC<TransferCardProps> = ({
                       Get Statistics
                     </button>
                   </div>
+                </div>
+
+                <div className="mt-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <h3 className="font-semibold">Transaction History</h3>
+                    <ExportButton
+                      rows={transactions}
+                      fields={transferTransactionFields}
+                      filenamePrefix={`transfer_transactions_${selectedTransfer.id}`}
+                      label="Export"
+                      disabled={transactionsLoading || transactions.length === 0}
+                    />
+                  </div>
+
+                  {transactionsLoading ? (
+                    <p className="text-sm text-gray-500 mt-3">Loading transactions…</p>
+                  ) : transactionsError ? (
+                    <p className="text-sm text-red-600 mt-3">{transactionsError}</p>
+                  ) : transactions.length === 0 ? (
+                    <p className="text-sm text-gray-500 mt-3">No transaction history loaded. Click "View Transactions" to fetch history.</p>
+                  ) : (
+                    <div className="mt-3 space-y-3">
+                      {transactions.map((tx) => (
+                        <div key={tx.id} className="border rounded p-3 bg-gray-50">
+                          <div className="flex justify-between items-center text-sm">
+                            <span><strong>ID:</strong> {tx.id}</span>
+                            <span className={tx.isApproved ? 'text-green-600' : 'text-red-600'}>
+                              {tx.isApproved ? 'Approved' : 'Rejected'}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 text-sm mt-2 sm:grid-cols-2">
+                            <span><strong>Merchant:</strong> {tx.merchantId}</span>
+                            <span><strong>Amount:</strong> {tx.amount}</span>
+                            <span><strong>Category:</strong> {tx.category}</span>
+                            <span><strong>Location:</strong> {tx.location}</span>
+                            <span><strong>Time:</strong> {formatDate(tx.timestamp)}</span>
+                            {tx.rejectionReason && <span><strong>Reason:</strong> {tx.rejectionReason}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
               
