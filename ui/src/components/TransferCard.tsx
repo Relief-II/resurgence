@@ -1,6 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { TransferClient, ConditionalTransfer, SpendingRule, NetworkConfig } from '../../sdk/src/types';
 import {
+  useFormValidation,
+  FieldError,
+  compose,
+  required,
+  identifier,
+  isPositiveNumber,
+  minValue,
+  tokenType,
+  futureDate,
+  minLength,
+  maxLength,
+} from '../validation';
+import {
   SkeletonList,
   StatusMessage,
   EmptyState,
@@ -39,6 +52,22 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
     transferId: '', beneficiaryKey: '', merchantId: '', amount: '', category: 'food', location: '',
   });
 
+  const createValidation = useFormValidation<typeof createForm>({
+    transferId: compose(required('Transfer ID'), identifier('Transfer ID')),
+    beneficiaryId: compose(required('Beneficiary ID'), identifier('Beneficiary ID')),
+    amount: compose(required('Amount'), isPositiveNumber('Amount'), minValue(1, 'Amount')),
+    token: compose(required('Token'), tokenType),
+    expiresAt: compose(required('Expiry Date'), futureDate('Expiry Date')),
+    purpose: compose(required('Purpose'), minLength(2, 'Purpose'), maxLength(200, 'Purpose')),
+  });
+
+  const spendValidation = useFormValidation<typeof spendForm>({
+    transferId: compose(required('Transfer ID'), identifier('Transfer ID')),
+    beneficiaryKey: required('Beneficiary Key'),
+    merchantId: compose(required('Merchant ID'), identifier('Merchant ID')),
+    amount: compose(required('Amount'), isPositiveNumber('Amount'), minValue(1, 'Amount')),
+  });
+
   const loadTransfers = useCallback(async () => {
     setListLoading(true);
     setListError(null);
@@ -56,6 +85,7 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
 
   const handleCreateTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!createValidation.validateAll(createForm as Record<keyof typeof createForm, string>)) return;
     setSubmitting(true);
     setSubmitStatus(null);
     try {
@@ -74,6 +104,7 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
       );
       setShowCreateForm(false);
       setCreateForm({ transferId: '', beneficiaryId: '', amount: '', token: 'XLM', expiresAt: '', purpose: '', rules: createForm.rules });
+      createValidation.reset();
       setSubmitStatus({ type: 'success', message: 'Conditional transfer created successfully.' });
       loadTransfers();
     } catch {
@@ -85,6 +116,7 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
 
   const handleSpend = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!spendValidation.validateAll(spendForm as Record<keyof typeof spendForm, string>)) return;
     setSubmitting(true);
     setSubmitStatus(null);
     try {
@@ -96,6 +128,7 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
         setSubmitStatus({ type: 'success', message: 'Payment processed successfully.' });
         setShowSpendForm(false);
         setSpendForm({ transferId: '', beneficiaryKey: '', merchantId: '', amount: '', category: 'food', location: '' });
+        spendValidation.reset();
         loadTransfers();
       } else {
         setSubmitStatus({ type: 'error', message: 'Payment rejected by spending rules.' });
@@ -178,32 +211,56 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
             <h2 className="text-xl font-semibold mb-4">Create Conditional Transfer</h2>
             <form onSubmit={handleCreateTransfer} className="space-y-4" aria-label="Create transfer form">
               <div className="grid grid-cols-2 gap-4">
-                <input type="text" placeholder="Transfer ID" value={createForm.transferId} required aria-label="Transfer ID"
-                  onChange={e => setCreateForm({ ...createForm, transferId: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                <input type="text" placeholder="Beneficiary ID" value={createForm.beneficiaryId} required aria-label="Beneficiary ID"
-                  onChange={e => setCreateForm({ ...createForm, beneficiaryId: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <div>
+                  <input type="text" placeholder="Transfer ID" value={createForm.transferId} aria-label="Transfer ID" aria-describedby="ct-transferId-error"
+                    onChange={e => { setCreateForm({ ...createForm, transferId: e.target.value }); createValidation.validateField('transferId', e.target.value); }}
+                    onBlur={e => createValidation.validateField('transferId', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${createValidation.touched.transferId && createValidation.errors.transferId ? 'border-red-500' : ''}`} />
+                  <FieldError id="ct-transferId-error" error={createValidation.touched.transferId ? createValidation.errors.transferId : null} />
+                </div>
+                <div>
+                  <input type="text" placeholder="Beneficiary ID" value={createForm.beneficiaryId} aria-label="Beneficiary ID" aria-describedby="ct-beneficiaryId-error"
+                    onChange={e => { setCreateForm({ ...createForm, beneficiaryId: e.target.value }); createValidation.validateField('beneficiaryId', e.target.value); }}
+                    onBlur={e => createValidation.validateField('beneficiaryId', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${createValidation.touched.beneficiaryId && createValidation.errors.beneficiaryId ? 'border-red-500' : ''}`} />
+                  <FieldError id="ct-beneficiaryId-error" error={createValidation.touched.beneficiaryId ? createValidation.errors.beneficiaryId : null} />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <input type="number" placeholder="Amount" value={createForm.amount} required aria-label="Amount"
-                  onChange={e => setCreateForm({ ...createForm, amount: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                <select value={createForm.token} aria-label="Token"
-                  onChange={e => setCreateForm({ ...createForm, token: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="XLM">XLM</option>
-                  <option value="USDC">USDC</option>
-                  <option value="EURT">EURT</option>
-                </select>
+                <div>
+                  <input type="number" placeholder="Amount" value={createForm.amount} aria-label="Amount" aria-describedby="ct-amount-error"
+                    onChange={e => { setCreateForm({ ...createForm, amount: e.target.value }); createValidation.validateField('amount', e.target.value); }}
+                    onBlur={e => createValidation.validateField('amount', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${createValidation.touched.amount && createValidation.errors.amount ? 'border-red-500' : ''}`} />
+                  <FieldError id="ct-amount-error" error={createValidation.touched.amount ? createValidation.errors.amount : null} />
+                </div>
+                <div>
+                  <select value={createForm.token} aria-label="Token" aria-describedby="ct-token-error"
+                    onChange={e => { setCreateForm({ ...createForm, token: e.target.value }); createValidation.validateField('token', e.target.value); }}
+                    onBlur={e => createValidation.validateField('token', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${createValidation.touched.token && createValidation.errors.token ? 'border-red-500' : ''}`}>
+                    <option value="XLM">XLM</option>
+                    <option value="USDC">USDC</option>
+                    <option value="EURT">EURT</option>
+                  </select>
+                  <FieldError id="ct-token-error" error={createValidation.touched.token ? createValidation.errors.token : null} />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <input type="datetime-local" value={createForm.expiresAt} required aria-label="Expiry Date"
-                  onChange={e => setCreateForm({ ...createForm, expiresAt: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                <input type="text" placeholder="Purpose" value={createForm.purpose} required aria-label="Purpose"
-                  onChange={e => setCreateForm({ ...createForm, purpose: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <div>
+                  <input type="datetime-local" value={createForm.expiresAt} aria-label="Expiry Date" aria-describedby="ct-expiresAt-error"
+                    onChange={e => { setCreateForm({ ...createForm, expiresAt: e.target.value }); createValidation.validateField('expiresAt', e.target.value); }}
+                    onBlur={e => createValidation.validateField('expiresAt', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${createValidation.touched.expiresAt && createValidation.errors.expiresAt ? 'border-red-500' : ''}`} />
+                  <FieldError id="ct-expiresAt-error" error={createValidation.touched.expiresAt ? createValidation.errors.expiresAt : null} />
+                </div>
+                <div>
+                  <input type="text" placeholder="Purpose" value={createForm.purpose} aria-label="Purpose" aria-describedby="ct-purpose-error"
+                    onChange={e => { setCreateForm({ ...createForm, purpose: e.target.value }); createValidation.validateField('purpose', e.target.value); }}
+                    onBlur={e => createValidation.validateField('purpose', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${createValidation.touched.purpose && createValidation.errors.purpose ? 'border-red-500' : ''}`} />
+                  <FieldError id="ct-purpose-error" error={createValidation.touched.purpose ? createValidation.errors.purpose : null} />
+                </div>
               </div>
               <div className="flex gap-3">
                 <LoadingButton type="submit" loading={submitting} loadingLabel="Creating…"
@@ -225,20 +282,36 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
             <h2 className="text-xl font-semibold mb-4">Process Payment</h2>
             <form onSubmit={handleSpend} className="space-y-4" aria-label="Process payment form">
               <div className="grid grid-cols-2 gap-4">
-                <input type="text" placeholder="Transfer ID" value={spendForm.transferId} required aria-label="Transfer ID"
-                  onChange={e => setSpendForm({ ...spendForm, transferId: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500" />
-                <input type="password" placeholder="Beneficiary Key" value={spendForm.beneficiaryKey} required aria-label="Beneficiary Key"
-                  onChange={e => setSpendForm({ ...spendForm, beneficiaryKey: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500" />
+                <div>
+                  <input type="text" placeholder="Transfer ID" value={spendForm.transferId} aria-label="Transfer ID" aria-describedby="sp-transferId-error"
+                    onChange={e => { setSpendForm({ ...spendForm, transferId: e.target.value }); spendValidation.validateField('transferId', e.target.value); }}
+                    onBlur={e => spendValidation.validateField('transferId', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500 ${spendValidation.touched.transferId && spendValidation.errors.transferId ? 'border-red-500' : ''}`} />
+                  <FieldError id="sp-transferId-error" error={spendValidation.touched.transferId ? spendValidation.errors.transferId : null} />
+                </div>
+                <div>
+                  <input type="password" placeholder="Beneficiary Key" value={spendForm.beneficiaryKey} aria-label="Beneficiary Key" aria-describedby="sp-beneficiaryKey-error"
+                    onChange={e => { setSpendForm({ ...spendForm, beneficiaryKey: e.target.value }); spendValidation.validateField('beneficiaryKey', e.target.value); }}
+                    onBlur={e => spendValidation.validateField('beneficiaryKey', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500 ${spendValidation.touched.beneficiaryKey && spendValidation.errors.beneficiaryKey ? 'border-red-500' : ''}`} />
+                  <FieldError id="sp-beneficiaryKey-error" error={spendValidation.touched.beneficiaryKey ? spendValidation.errors.beneficiaryKey : null} />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <input type="text" placeholder="Merchant ID" value={spendForm.merchantId} required aria-label="Merchant ID"
-                  onChange={e => setSpendForm({ ...spendForm, merchantId: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500" />
-                <input type="number" placeholder="Amount" value={spendForm.amount} required aria-label="Amount"
-                  onChange={e => setSpendForm({ ...spendForm, amount: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500" />
+                <div>
+                  <input type="text" placeholder="Merchant ID" value={spendForm.merchantId} aria-label="Merchant ID" aria-describedby="sp-merchantId-error"
+                    onChange={e => { setSpendForm({ ...spendForm, merchantId: e.target.value }); spendValidation.validateField('merchantId', e.target.value); }}
+                    onBlur={e => spendValidation.validateField('merchantId', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500 ${spendValidation.touched.merchantId && spendValidation.errors.merchantId ? 'border-red-500' : ''}`} />
+                  <FieldError id="sp-merchantId-error" error={spendValidation.touched.merchantId ? spendValidation.errors.merchantId : null} />
+                </div>
+                <div>
+                  <input type="number" placeholder="Amount" value={spendForm.amount} aria-label="Amount" aria-describedby="sp-amount-error"
+                    onChange={e => { setSpendForm({ ...spendForm, amount: e.target.value }); spendValidation.validateField('amount', e.target.value); }}
+                    onBlur={e => spendValidation.validateField('amount', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500 ${spendValidation.touched.amount && spendValidation.errors.amount ? 'border-red-500' : ''}`} />
+                  <FieldError id="sp-amount-error" error={spendValidation.touched.amount ? spendValidation.errors.amount : null} />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <select value={spendForm.category} aria-label="Category"

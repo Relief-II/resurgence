@@ -1,6 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { MerchantClient, Merchant, Location, NetworkConfig } from '../../sdk/src/types';
 import {
+  useFormValidation,
+  FieldError,
+  compose,
+  required,
+  identifier,
+  minLength,
+  maxLength,
+  stellarAddress,
+  businessType,
+  latitude,
+  longitude,
+  isPositiveNumber,
+  minValue,
+} from '../validation';
+import {
   SkeletonList,
   StatusMessage,
   EmptyState,
@@ -33,6 +48,22 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
     location: { latitude: '', longitude: '', address: '', city: '', country: '', postalCode: '', facilityName: '', contactPerson: '' },
   });
 
+  type FlatOnboarding = { merchantId: string; name: string; businessType: string; contactInfo: string; stellarAddress: string; latitude: string; longitude: string; address: string; city: string; country: string; dailyLimit: string; monthlyLimit: string; };
+  const onboardValidation = useFormValidation<FlatOnboarding>({
+    merchantId: compose(required('Merchant ID'), identifier('Merchant ID')),
+    name: compose(required('Business Name'), minLength(2, 'Business Name'), maxLength(100, 'Business Name')),
+    businessType: compose(required('Business Type'), businessType),
+    contactInfo: compose(required('Contact Information'), minLength(2, 'Contact Information')),
+    stellarAddress: compose(required('Stellar Address'), stellarAddress),
+    latitude: compose(required('Latitude'), latitude),
+    longitude: compose(required('Longitude'), longitude),
+    address: compose(required('Address'), minLength(2, 'Address')),
+    city: compose(required('City'), minLength(2, 'City')),
+    country: compose(required('Country'), minLength(2, 'Country')),
+    dailyLimit: compose(required('Daily Limit'), isPositiveNumber('Daily Limit'), minValue(1, 'Daily Limit')),
+    monthlyLimit: compose(required('Monthly Limit'), isPositiveNumber('Monthly Limit'), minValue(1, 'Monthly Limit')),
+  });
+
   const loadMerchants = useCallback(async () => {
     setListLoading(true);
     setListError(null);
@@ -62,6 +93,8 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
 
   const handleOnboarding = async (e: React.FormEvent) => {
     e.preventDefault();
+    const flat = { ...onboardingForm, ...onboardingForm.location } as Record<string, string>;
+    if (!onboardValidation.validateAll(flat as never)) return;
     setSubmitting(true);
     setSubmitStatus(null);
     try {
@@ -84,6 +117,7 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
         acceptedTokens: 'XLM', dailyLimit: '1000', monthlyLimit: '10000',
         location: { latitude: '', longitude: '', address: '', city: '', country: '', postalCode: '', facilityName: '', contactPerson: '' },
       });
+      onboardValidation.reset();
       setSubmitStatus({ type: 'success', message: 'Merchant registered successfully. Awaiting verification.' });
       loadVerificationQueue();
     } catch {
@@ -174,34 +208,54 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
             <h2 className="text-xl font-semibold mb-4">Onboard New Merchant</h2>
             <form onSubmit={handleOnboarding} className="space-y-4" aria-label="Merchant onboarding form">
               <div className="grid grid-cols-2 gap-4">
-                <input type="text" placeholder="Merchant ID" value={onboardingForm.merchantId} required aria-label="Merchant ID"
-                  onChange={e => setOnboardingForm({ ...onboardingForm, merchantId: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                <input type="text" placeholder="Business Name" value={onboardingForm.name} required aria-label="Business Name"
-                  onChange={e => setOnboardingForm({ ...onboardingForm, name: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <div>
+                  <input type="text" placeholder="Merchant ID" value={onboardingForm.merchantId} aria-label="Merchant ID" aria-describedby="mo-merchantId-error"
+                    onChange={e => { setOnboardingForm({ ...onboardingForm, merchantId: e.target.value }); onboardValidation.validateField('merchantId', e.target.value); }}
+                    onBlur={e => onboardValidation.validateField('merchantId', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${onboardValidation.touched.merchantId && onboardValidation.errors.merchantId ? 'border-red-500' : ''}`} />
+                  <FieldError id="mo-merchantId-error" error={onboardValidation.touched.merchantId ? onboardValidation.errors.merchantId : null} />
+                </div>
+                <div>
+                  <input type="text" placeholder="Business Name" value={onboardingForm.name} aria-label="Business Name" aria-describedby="mo-name-error"
+                    onChange={e => { setOnboardingForm({ ...onboardingForm, name: e.target.value }); onboardValidation.validateField('name', e.target.value); }}
+                    onBlur={e => onboardValidation.validateField('name', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${onboardValidation.touched.name && onboardValidation.errors.name ? 'border-red-500' : ''}`} />
+                  <FieldError id="mo-name-error" error={onboardValidation.touched.name ? onboardValidation.errors.name : null} />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <select value={onboardingForm.businessType} aria-label="Business Type"
-                  onChange={e => setOnboardingForm({ ...onboardingForm, businessType: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="grocery">Grocery Store</option>
-                  <option value="pharmacy">Pharmacy</option>
-                  <option value="hardware">Hardware Store</option>
-                  <option value="fuel_station">Fuel Station</option>
-                  <option value="clothing">Clothing Store</option>
-                  <option value="restaurant">Restaurant</option>
-                  <option value="transport">Transport</option>
-                  <option value="communication">Communication</option>
-                </select>
-                <input type="text" placeholder="Contact Information" value={onboardingForm.contactInfo} required aria-label="Contact Information"
-                  onChange={e => setOnboardingForm({ ...onboardingForm, contactInfo: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <div>
+                  <select value={onboardingForm.businessType} aria-label="Business Type" aria-describedby="mo-businessType-error"
+                    onChange={e => { setOnboardingForm({ ...onboardingForm, businessType: e.target.value }); onboardValidation.validateField('businessType', e.target.value); }}
+                    onBlur={e => onboardValidation.validateField('businessType', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${onboardValidation.touched.businessType && onboardValidation.errors.businessType ? 'border-red-500' : ''}`}>
+                    <option value="grocery">Grocery Store</option>
+                    <option value="pharmacy">Pharmacy</option>
+                    <option value="hardware">Hardware Store</option>
+                    <option value="fuel_station">Fuel Station</option>
+                    <option value="clothing">Clothing Store</option>
+                    <option value="restaurant">Restaurant</option>
+                    <option value="transport">Transport</option>
+                    <option value="communication">Communication</option>
+                  </select>
+                  <FieldError id="mo-businessType-error" error={onboardValidation.touched.businessType ? onboardValidation.errors.businessType : null} />
+                </div>
+                <div>
+                  <input type="text" placeholder="Contact Information" value={onboardingForm.contactInfo} aria-label="Contact Information" aria-describedby="mo-contactInfo-error"
+                    onChange={e => { setOnboardingForm({ ...onboardingForm, contactInfo: e.target.value }); onboardValidation.validateField('contactInfo', e.target.value); }}
+                    onBlur={e => onboardValidation.validateField('contactInfo', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${onboardValidation.touched.contactInfo && onboardValidation.errors.contactInfo ? 'border-red-500' : ''}`} />
+                  <FieldError id="mo-contactInfo-error" error={onboardValidation.touched.contactInfo ? onboardValidation.errors.contactInfo : null} />
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <input type="text" placeholder="Stellar Address" value={onboardingForm.stellarAddress} required aria-label="Stellar Address"
-                  onChange={e => setOnboardingForm({ ...onboardingForm, stellarAddress: e.target.value })}
-                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <div>
+                  <input type="text" placeholder="Stellar Address" value={onboardingForm.stellarAddress} aria-label="Stellar Address" aria-describedby="mo-stellarAddress-error"
+                    onChange={e => { setOnboardingForm({ ...onboardingForm, stellarAddress: e.target.value }); onboardValidation.validateField('stellarAddress', e.target.value); }}
+                    onBlur={e => onboardValidation.validateField('stellarAddress', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${onboardValidation.touched.stellarAddress && onboardValidation.errors.stellarAddress ? 'border-red-500' : ''}`} />
+                  <FieldError id="mo-stellarAddress-error" error={onboardValidation.touched.stellarAddress ? onboardValidation.errors.stellarAddress : null} />
+                </div>
                 <input type="text" placeholder="Accepted Tokens" value={onboardingForm.acceptedTokens} aria-label="Accepted Tokens"
                   onChange={e => setOnboardingForm({ ...onboardingForm, acceptedTokens: e.target.value })}
                   className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -209,25 +263,45 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
               <div className="border-t pt-4">
                 <h3 className="font-semibold mb-2">Location Information</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  <input type="number" step="any" placeholder="Latitude" value={onboardingForm.location.latitude} required aria-label="Latitude"
-                    onChange={e => setOnboardingForm({ ...onboardingForm, location: { ...onboardingForm.location, latitude: e.target.value } })}
-                    className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  <input type="number" step="any" placeholder="Longitude" value={onboardingForm.location.longitude} required aria-label="Longitude"
-                    onChange={e => setOnboardingForm({ ...onboardingForm, location: { ...onboardingForm.location, longitude: e.target.value } })}
-                    className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <div>
+                    <input type="number" step="any" placeholder="Latitude" value={onboardingForm.location.latitude} aria-label="Latitude" aria-describedby="mo-latitude-error"
+                      onChange={e => { setOnboardingForm({ ...onboardingForm, location: { ...onboardingForm.location, latitude: e.target.value } }); onboardValidation.validateField('latitude', e.target.value); }}
+                      onBlur={e => onboardValidation.validateField('latitude', e.target.value)}
+                      className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${onboardValidation.touched.latitude && onboardValidation.errors.latitude ? 'border-red-500' : ''}`} />
+                    <FieldError id="mo-latitude-error" error={onboardValidation.touched.latitude ? onboardValidation.errors.latitude : null} />
+                  </div>
+                  <div>
+                    <input type="number" step="any" placeholder="Longitude" value={onboardingForm.location.longitude} aria-label="Longitude" aria-describedby="mo-longitude-error"
+                      onChange={e => { setOnboardingForm({ ...onboardingForm, location: { ...onboardingForm.location, longitude: e.target.value } }); onboardValidation.validateField('longitude', e.target.value); }}
+                      onBlur={e => onboardValidation.validateField('longitude', e.target.value)}
+                      className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${onboardValidation.touched.longitude && onboardValidation.errors.longitude ? 'border-red-500' : ''}`} />
+                    <FieldError id="mo-longitude-error" error={onboardValidation.touched.longitude ? onboardValidation.errors.longitude : null} />
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 mt-2">
-                  <input type="text" placeholder="Address" value={onboardingForm.location.address} required aria-label="Address"
-                    onChange={e => setOnboardingForm({ ...onboardingForm, location: { ...onboardingForm.location, address: e.target.value } })}
-                    className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                  <input type="text" placeholder="City" value={onboardingForm.location.city} required aria-label="City"
-                    onChange={e => setOnboardingForm({ ...onboardingForm, location: { ...onboardingForm.location, city: e.target.value } })}
-                    className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <div>
+                    <input type="text" placeholder="Address" value={onboardingForm.location.address} aria-label="Address" aria-describedby="mo-address-error"
+                      onChange={e => { setOnboardingForm({ ...onboardingForm, location: { ...onboardingForm.location, address: e.target.value } }); onboardValidation.validateField('address', e.target.value); }}
+                      onBlur={e => onboardValidation.validateField('address', e.target.value)}
+                      className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${onboardValidation.touched.address && onboardValidation.errors.address ? 'border-red-500' : ''}`} />
+                    <FieldError id="mo-address-error" error={onboardValidation.touched.address ? onboardValidation.errors.address : null} />
+                  </div>
+                  <div>
+                    <input type="text" placeholder="City" value={onboardingForm.location.city} aria-label="City" aria-describedby="mo-city-error"
+                      onChange={e => { setOnboardingForm({ ...onboardingForm, location: { ...onboardingForm.location, city: e.target.value } }); onboardValidation.validateField('city', e.target.value); }}
+                      onBlur={e => onboardValidation.validateField('city', e.target.value)}
+                      className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${onboardValidation.touched.city && onboardValidation.errors.city ? 'border-red-500' : ''}`} />
+                    <FieldError id="mo-city-error" error={onboardValidation.touched.city ? onboardValidation.errors.city : null} />
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 mt-2">
-                  <input type="text" placeholder="Country" value={onboardingForm.location.country} required aria-label="Country"
-                    onChange={e => setOnboardingForm({ ...onboardingForm, location: { ...onboardingForm.location, country: e.target.value } })}
-                    className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  <div>
+                    <input type="text" placeholder="Country" value={onboardingForm.location.country} aria-label="Country" aria-describedby="mo-country-error"
+                      onChange={e => { setOnboardingForm({ ...onboardingForm, location: { ...onboardingForm.location, country: e.target.value } }); onboardValidation.validateField('country', e.target.value); }}
+                      onBlur={e => onboardValidation.validateField('country', e.target.value)}
+                      className={`w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500 ${onboardValidation.touched.country && onboardValidation.errors.country ? 'border-red-500' : ''}`} />
+                    <FieldError id="mo-country-error" error={onboardValidation.touched.country ? onboardValidation.errors.country : null} />
+                  </div>
                   <input type="text" placeholder="Postal Code" value={onboardingForm.location.postalCode} aria-label="Postal Code"
                     onChange={e => setOnboardingForm({ ...onboardingForm, location: { ...onboardingForm.location, postalCode: e.target.value } })}
                     className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500" />
