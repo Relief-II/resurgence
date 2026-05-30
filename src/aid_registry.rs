@@ -485,6 +485,128 @@ impl AidRegistry {
         trigger.auto_release_amount
     }
 
+    /// Batch disbursement entry — one recipient in a batch request
+    /// (Defined here as a helper type used by submit_batch_disbursement)
+
+    /// Submit multiple disbursements atomically in a single transaction.
+    ///
+    /// All entries must pass validation; if any entry fails the entire
+    /// transaction is reverted (Soroban panic semantics).
+    ///
+    /// # Parameters
+    /// - `requester`  – address that must be authorised to submit
+    /// - `fund_id`    – fund from which all disbursements are drawn
+    /// - `entries`    – Vec of (beneficiary, amount, purpose) tuples
+    /// - `approvers`  – multi-sig approvers (must satisfy required_signatures)
+    ///
+    /// # Returns
+    /// Vec of disbursement IDs created (one per entry, in order).
+    pub fn submit_batch_disbursement(
+        env: Env,
+        requester: Address,
+        fund_id: String,
+        entries: Vec<(Address, U256, String)>,
+        approvers: Vec<Address>,
+    ) -> Vec<String> {
+        requester.require_auth();
+
+        // ── Validate batch is non-empty ──────────────────────────────────────
+        if entries.is_empty() {
+            panic_with_error!(&env, "Batch must contain at least one entry");
+        }
+
+        // ── Load fund ────────────────────────────────────────────────────────
+        let fund_key = Symbol::new(&env, "fund");
+        let mut funds: Map<String, EmergencyFund> = env
+            .storage()
+            .instance()
+            .get(&fund_key)
+            .unwrap_or(Map::new(&env));
+
+        let mut fund = funds.get(fund_id.clone()).unwrap_or_panic_with(&env);
+
+        if !fund.is_active {
+            panic_with_error!(&env, "Fund is not active");
+        }
+
+        // ── Validate multi-sig ───────────────────────────────────────────────
+        if approvers.len() < fund.required_signatures as usize {
+            panic_with_error!(&env, "Insufficient signatures");
+        }
+        for approver in approvers.iter() {
+            if !fund.release_triggers.contains(approver.clone()) {
+                panic_with_error!(&env, "Unauthorized approver");
+            }
+        }
+
+        // ── Validate each entry and compute total ────────────────────────────
+        let mut total = U256::from_u64(0);
+        for (_, amount, _) in entries.iter() {
+            if amount == U256::from_u64(0) {
+                panic_with_error!(&env, "Amount must be greater than zero");
+            }
+            total = total + amount;
+        }
+
+        // ── Check duplicate beneficiaries within the batch ───────────────────
+        let mut seen: Vec<Address> = Vec::new(&env);
+        for (beneficiary, _, _) in entries.iter() {
+            if seen.contains(beneficiary.clone()) {
+                panic_with_error!(&env, "Duplicate beneficiary in batch");
+            }
+            seen.push_back(beneficiary);
+        }
+
+        // ── Check fund has sufficient balance ────────────────────────────────
+        let available = fund.total_amount.clone() - fund.released_amount.clone() - fund.reserved_for_recall.clone();
+        if total > available {
+            panic_with_error!(&env, "Insufficient funds in pool");
+        }
+
+        // ── Persist disbursement records ─────────────────────────────────────
+        let disbursement_key = Symbol::new(&env, &format!("disbursements_{}", fund_id));
+        let mut disbursements: Map<String, DisbursementRecord> = env
+            .storage()
+            .instance()
+            .get(&disbursement_key)
+            .unwrap_or(Map::new(&env));
+
+        let mut ids: Vec<String> = Vec::new(&env);
+        let base_ts = env.ledger().timestamp();
+
+        for (idx, (beneficiary, amount, purpose)) in entries.iter().enumerate() {
+            let disbursement_id = String::from_str(
+                &env,
+                &format!("{}_batch_{}_{}", fund_id, base_ts, idx),
+            );
+            let record = DisbursementRecord {
+                id: disbursement_id.clone(),
+                fund_id: fund_id.clone(),
+                beneficiary,
+                amount,
+                timestamp: base_ts,
+                purpose,
+                approved_by: approvers.clone(),
+                transaction_hash: String::from_str(&env, ""),
+                trigger_id: None,
+                is_auto_released: false,
+            };
+            disbursements.set(disbursement_id.clone(), record);
+            ids.push_back(disbursement_id);
+        }
+
+        env.storage()
+            .instance()
+            .set(&disbursement_key, &disbursements);
+
+        // ── Update fund released amount ──────────────────────────────────────
+        fund.released_amount = fund.released_amount + total;
+        funds.set(fund_id.clone(), fund);
+        env.storage().instance().set(&fund_key, &funds);
+
+        ids
+    }
+
     /// Multi-sig manual release with 2-of-3 threshold
     pub fn execute_multi_sig_release(
         env: Env,
