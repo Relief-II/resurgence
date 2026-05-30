@@ -56,6 +56,8 @@ export interface FundAllocation {
   beneficiaries: string[];
   proofOfNeed: string;
   allocatedAt: number;
+  minAmount: string;
+  maxAmount: string;
 }
 
 export interface OracleData {
@@ -389,7 +391,9 @@ export class EmergencyFundsClient {
     sector: string,
     amount: string,
     beneficiaries: string[],
-    proofOfNeed: string
+    proofOfNeed: string,
+    minAmount: string,
+    maxAmount: string
   ): Promise<{ success: boolean; transactionHash: string }> {
     try {
       const sourceAccount = await this.server.loadAccount(adminAddress);
@@ -407,7 +411,9 @@ export class EmergencyFundsClient {
             sector,
             amount,
             beneficiaries.map(b => new Address(b)),
-            proofOfNeed
+            proofOfNeed,
+            minAmount,
+            maxAmount
           )
         )
         .setTimeout(300)

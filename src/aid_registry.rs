@@ -79,6 +79,8 @@ pub struct FundAllocation {
     pub beneficiaries: Vec<Address>,
     pub proof_of_need: String,
     pub allocated_at: u64,
+    pub min_amount: U256,
+    pub max_amount: U256,
 }
 
 #[derive(Clone)]
@@ -557,8 +559,18 @@ impl AidRegistry {
         amount: U256,
         beneficiaries: Vec<Address>,
         proof_of_need: String,
+        min_amount: U256,
+        max_amount: U256,
     ) {
         admin.require_auth();
+        
+        // Validate amount is within min/max bounds
+        if amount < min_amount {
+            panic_with_error!(&env, "Allocation amount is below minimum threshold");
+        }
+        if amount > max_amount {
+            panic_with_error!(&env, "Allocation amount exceeds maximum threshold");
+        }
         
         // Get fund
         let fund_key = Symbol::new(&env, "fund");
@@ -575,6 +587,8 @@ impl AidRegistry {
             beneficiaries,
             proof_of_need,
             allocated_at: env.ledger().timestamp(),
+            min_amount,
+            max_amount,
         };
         
         // Add to fund allocations
