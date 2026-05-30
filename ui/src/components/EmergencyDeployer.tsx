@@ -1,5 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AidClient, EmergencyFund, NetworkConfig } from '../../sdk/src/types';
+import {
+  SkeletonList,
+  SkeletonCard,
+  StatusMessage,
+  EmptyState,
+  ErrorState,
+  LoadingButton,
+  PageLoadingOverlay,
+} from './LoadingPrimitives';
 
 interface EmergencyDeployerProps {
   aidClient: AidClient;
@@ -10,15 +19,18 @@ interface EmergencyDeployerProps {
 export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
   aidClient,
   config,
-  adminKey
+  adminKey,
 }) => {
   const [funds, setFunds] = useState<EmergencyFund[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitStatus, setSubmitStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showRapidForm, setShowRapidForm] = useState(false);
   const [selectedFund, setSelectedFund] = useState<EmergencyFund | null>(null);
+  const [cleaningUp, setCleaningUp] = useState(false);
 
-  // Form states
   const [fundForm, setFundForm] = useState({
     fundId: '',
     name: '',
@@ -27,7 +39,7 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
     disasterType: '',
     geographicScope: '',
     expiresAt: '',
-    requiredSignatures: '1'
+    requiredSignatures: '1',
   });
 
   const [rapidForm, setRapidForm] = useState({
@@ -39,30 +51,33 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
       { name: 'Food', percentage: 40, description: 'Emergency food supplies' },
       { name: 'Medical', percentage: 30, description: 'Medical supplies and care' },
       { name: 'Shelter', percentage: 20, description: 'Emergency shelter materials' },
-      { name: 'Water', percentage: 10, description: 'Clean water and sanitation' }
-    ]
+      { name: 'Water', percentage: 10, description: 'Clean water and sanitation' },
+    ],
   });
 
-  useEffect(() => {
-    loadActiveFunds();
-  }, []);
-
-  const loadActiveFunds = async () => {
+  const loadActiveFunds = useCallback(async () => {
+    setListLoading(true);
+    setListError(null);
     try {
-      setLoading(true);
       const activeFunds = await aidClient.listActiveFunds();
       setFunds(activeFunds);
     } catch (error) {
+      setListError('Failed to load emergency funds. Please try again.');
       console.error('Failed to load funds:', error);
     } finally {
-      setLoading(false);
+      setListLoading(false);
     }
-  };
+  }, [aidClient]);
+
+  useEffect(() => {
+    loadActiveFunds();
+  }, [loadActiveFunds]);
 
   const handleCreateFund = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitting(true);
+    setSubmitStatus(null);
     try {
-      setLoading(true);
       await aidClient.deployEmergencyFund(
         adminKey,
         fundForm.fundId,
@@ -72,10 +87,9 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
         fundForm.disasterType,
         fundForm.geographicScope,
         new Date(fundForm.expiresAt).getTime(),
-        [adminKey], // Simplified - would use multi-sig in production
+        [adminKey],
         parseInt(fundForm.requiredSignatures)
       );
-      
       setShowCreateForm(false);
       setFundForm({
         fundId: '',
@@ -85,21 +99,23 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
         disasterType: '',
         geographicScope: '',
         expiresAt: '',
-        requiredSignatures: '1'
+        requiredSignatures: '1',
       });
+      setSubmitStatus({ type: 'success', message: 'Emergency fund created successfully.' });
       loadActiveFunds();
     } catch (error) {
+      setSubmitStatus({ type: 'error', message: 'Failed to create emergency fund. Please try again.' });
       console.error('Failed to create fund:', error);
-      alert('Failed to create emergency fund');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
   const handleRapidDeployment = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitting(true);
+    setSubmitStatus(null);
     try {
-      setLoading(true);
       const fundIds = await aidClient.deployRapidResponse(
         adminKey,
         rapidForm.disasterId,
@@ -108,142 +124,150 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
         rapidForm.totalBudget,
         rapidForm.categories
       );
-      
       setShowRapidForm(false);
-      setRapidForm({
-        disasterId: '',
-        disasterType: '',
-        affectedArea: '',
-        totalBudget: '',
-        categories: rapidForm.categories
-      });
+      setRapidForm({ ...rapidForm, disasterId: '', disasterType: '', affectedArea: '', totalBudget: '' });
+      setSubmitStatus({ type: 'success', message: `Created ${fundIds.length} emergency funds for rapid response.` });
       loadActiveFunds();
-      alert(`Created ${fundIds.length} emergency funds for rapid response`);
     } catch (error) {
+      setSubmitStatus({ type: 'error', message: 'Failed to deploy rapid response. Please try again.' });
       console.error('Failed to deploy rapid response:', error);
-      alert('Failed to deploy rapid response');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
   const handleMonitorFund = async (fundId: string) => {
     try {
       const fund = await aidClient.getFund(fundId);
-      if (fund) {
-        setSelectedFund(fund);
-      }
+      if (fund) setSelectedFund(fund);
     } catch (error) {
       console.error('Failed to monitor fund:', error);
     }
   };
 
   const handleCleanupExpired = async () => {
+    setCleaningUp(true);
     try {
-      setLoading(true);
       await aidClient.cleanupExpiredFunds(adminKey);
+      setSubmitStatus({ type: 'success', message: 'Expired funds cleaned up successfully.' });
       loadActiveFunds();
-      alert('Expired funds cleaned up successfully');
     } catch (error) {
+      setSubmitStatus({ type: 'error', message: 'Failed to cleanup expired funds.' });
       console.error('Failed to cleanup expired funds:', error);
-      alert('Failed to cleanup expired funds');
     } finally {
-      setLoading(false);
+      setCleaningUp(false);
     }
   };
 
-  const formatAmount = (amount: string) => {
-    return new Intl.NumberFormat().format(parseInt(amount) || 0);
-  };
+  const formatAmount = (amount: string) =>
+    new Intl.NumberFormat().format(parseInt(amount) || 0);
 
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleDateString();
-  };
+  const formatDate = (timestamp: number) =>
+    new Date(timestamp).toLocaleDateString();
 
   const getFundStatusColor = (fund: EmergencyFund) => {
     const now = Date.now();
     if (now > fund.expiresAt) return 'text-red-600';
-    if (now > fund.expiresAt - (7 * 24 * 60 * 60 * 1000)) return 'text-yellow-600';
+    if (now > fund.expiresAt - 7 * 24 * 60 * 60 * 1000) return 'text-yellow-600';
     return 'text-green-600';
   };
 
   return (
     <div className="max-w-6xl mx-auto p-6">
+      {submitting && <PageLoadingOverlay message="Deploying emergency fund…" />}
+
       <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Emergency Fund Deployer</h1>
         <p className="text-gray-600 mb-6">
           Rapid deployment and monitoring of emergency relief funds
         </p>
 
-        <div className="flex space-x-4 mb-6">
+        {submitStatus && (
+          <StatusMessage
+            type={submitStatus.type}
+            message={submitStatus.message}
+            onDismiss={() => setSubmitStatus(null)}
+            className="mb-4"
+          />
+        )}
+
+        <div className="flex flex-wrap gap-3 mb-6">
           <button
             onClick={() => setShowCreateForm(!showCreateForm)}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            aria-expanded={showCreateForm}
+            aria-controls="create-fund-form"
           >
             Create Emergency Fund
           </button>
           <button
             onClick={() => setShowRapidForm(!showRapidForm)}
-            className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+            className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+            aria-expanded={showRapidForm}
+            aria-controls="rapid-form"
           >
             Rapid Disaster Response
           </button>
-          <button
+          <LoadingButton
             onClick={handleCleanupExpired}
-            disabled={loading}
-            className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
+            loading={cleaningUp}
+            loadingLabel="Cleaning up…"
+            className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500"
           >
             Cleanup Expired
-          </button>
+          </LoadingButton>
         </div>
 
         {/* Create Fund Form */}
         {showCreateForm && (
-          <div className="bg-gray-50 p-6 rounded-lg mb-6">
+          <div id="create-fund-form" className="bg-gray-50 p-6 rounded-lg mb-6">
             <h2 className="text-xl font-semibold mb-4">Create Emergency Fund</h2>
-            <form onSubmit={handleCreateFund} className="space-y-4">
+            <form onSubmit={handleCreateFund} className="space-y-4" aria-label="Create emergency fund form">
               <div className="grid grid-cols-2 gap-4">
                 <input
                   type="text"
                   placeholder="Fund ID"
                   value={fundForm.fundId}
-                  onChange={(e) => setFundForm({...fundForm, fundId: e.target.value})}
-                  className="px-3 py-2 border rounded"
+                  onChange={(e) => setFundForm({ ...fundForm, fundId: e.target.value })}
+                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
+                  aria-label="Fund ID"
                 />
                 <input
                   type="text"
                   placeholder="Fund Name"
                   value={fundForm.name}
-                  onChange={(e) => setFundForm({...fundForm, name: e.target.value})}
-                  className="px-3 py-2 border rounded"
+                  onChange={(e) => setFundForm({ ...fundForm, name: e.target.value })}
+                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
+                  aria-label="Fund Name"
                 />
               </div>
-              
               <textarea
                 placeholder="Description"
                 value={fundForm.description}
-                onChange={(e) => setFundForm({...fundForm, description: e.target.value})}
-                className="w-full px-3 py-2 border rounded"
+                onChange={(e) => setFundForm({ ...fundForm, description: e.target.value })}
+                className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                 rows={3}
                 required
+                aria-label="Description"
               />
-              
               <div className="grid grid-cols-2 gap-4">
                 <input
                   type="number"
                   placeholder="Total Amount"
                   value={fundForm.totalAmount}
-                  onChange={(e) => setFundForm({...fundForm, totalAmount: e.target.value})}
-                  className="px-3 py-2 border rounded"
+                  onChange={(e) => setFundForm({ ...fundForm, totalAmount: e.target.value })}
+                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
+                  aria-label="Total Amount"
                 />
                 <select
                   value={fundForm.disasterType}
-                  onChange={(e) => setFundForm({...fundForm, disasterType: e.target.value})}
-                  className="px-3 py-2 border rounded"
+                  onChange={(e) => setFundForm({ ...fundForm, disasterType: e.target.value })}
+                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
+                  aria-label="Disaster Type"
                 >
                   <option value="">Select Disaster Type</option>
                   <option value="earthquake">Earthquake</option>
@@ -253,37 +277,38 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
                   <option value="drought">Drought</option>
                 </select>
               </div>
-              
               <div className="grid grid-cols-2 gap-4">
                 <input
                   type="text"
                   placeholder="Geographic Scope"
                   value={fundForm.geographicScope}
-                  onChange={(e) => setFundForm({...fundForm, geographicScope: e.target.value})}
-                  className="px-3 py-2 border rounded"
+                  onChange={(e) => setFundForm({ ...fundForm, geographicScope: e.target.value })}
+                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
+                  aria-label="Geographic Scope"
                 />
                 <input
                   type="datetime-local"
                   value={fundForm.expiresAt}
-                  onChange={(e) => setFundForm({...fundForm, expiresAt: e.target.value})}
-                  className="px-3 py-2 border rounded"
+                  onChange={(e) => setFundForm({ ...fundForm, expiresAt: e.target.value })}
+                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
+                  aria-label="Expiry Date"
                 />
               </div>
-              
-              <div className="flex space-x-4">
-                <button
+              <div className="flex gap-3">
+                <LoadingButton
                   type="submit"
-                  disabled={loading}
-                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                  loading={submitting}
+                  loadingLabel="Creating…"
+                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
-                  {loading ? 'Creating...' : 'Create Fund'}
-                </button>
+                  Create Fund
+                </LoadingButton>
                 <button
                   type="button"
                   onClick={() => setShowCreateForm(false)}
-                  className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400"
+                  className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400"
                 >
                   Cancel
                 </button>
@@ -294,23 +319,25 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
 
         {/* Rapid Response Form */}
         {showRapidForm && (
-          <div className="bg-red-50 p-6 rounded-lg mb-6">
+          <div id="rapid-form" className="bg-red-50 p-6 rounded-lg mb-6">
             <h2 className="text-xl font-semibold mb-4">Rapid Disaster Response</h2>
-            <form onSubmit={handleRapidDeployment} className="space-y-4">
+            <form onSubmit={handleRapidDeployment} className="space-y-4" aria-label="Rapid disaster response form">
               <div className="grid grid-cols-2 gap-4">
                 <input
                   type="text"
                   placeholder="Disaster ID"
                   value={rapidForm.disasterId}
-                  onChange={(e) => setRapidForm({...rapidForm, disasterId: e.target.value})}
-                  className="px-3 py-2 border rounded"
+                  onChange={(e) => setRapidForm({ ...rapidForm, disasterId: e.target.value })}
+                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-red-500"
                   required
+                  aria-label="Disaster ID"
                 />
                 <select
                   value={rapidForm.disasterType}
-                  onChange={(e) => setRapidForm({...rapidForm, disasterType: e.target.value})}
-                  className="px-3 py-2 border rounded"
+                  onChange={(e) => setRapidForm({ ...rapidForm, disasterType: e.target.value })}
+                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-red-500"
                   required
+                  aria-label="Disaster Type"
                 >
                   <option value="">Select Disaster Type</option>
                   <option value="earthquake">Earthquake</option>
@@ -319,26 +346,26 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
                   <option value="wildfire">Wildfire</option>
                 </select>
               </div>
-              
               <div className="grid grid-cols-2 gap-4">
                 <input
                   type="text"
                   placeholder="Affected Area"
                   value={rapidForm.affectedArea}
-                  onChange={(e) => setRapidForm({...rapidForm, affectedArea: e.target.value})}
-                  className="px-3 py-2 border rounded"
+                  onChange={(e) => setRapidForm({ ...rapidForm, affectedArea: e.target.value })}
+                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-red-500"
                   required
+                  aria-label="Affected Area"
                 />
                 <input
                   type="number"
                   placeholder="Total Budget"
                   value={rapidForm.totalBudget}
-                  onChange={(e) => setRapidForm({...rapidForm, totalBudget: e.target.value})}
-                  className="px-3 py-2 border rounded"
+                  onChange={(e) => setRapidForm({ ...rapidForm, totalBudget: e.target.value })}
+                  className="px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-red-500"
                   required
+                  aria-label="Total Budget"
                 />
               </div>
-              
               <div className="space-y-2">
                 <h3 className="font-semibold">Fund Categories:</h3>
                 {rapidForm.categories.map((category, index) => (
@@ -349,19 +376,19 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
                   </div>
                 ))}
               </div>
-              
-              <div className="flex space-x-4">
-                <button
+              <div className="flex gap-3">
+                <LoadingButton
                   type="submit"
-                  disabled={loading}
-                  className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+                  loading={submitting}
+                  loadingLabel="Deploying…"
+                  className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
                 >
-                  {loading ? 'Deploying...' : 'Deploy Rapid Response'}
-                </button>
+                  Deploy Rapid Response
+                </LoadingButton>
                 <button
                   type="button"
                   onClick={() => setShowRapidForm(false)}
-                  className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400"
+                  className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400"
                 >
                   Cancel
                 </button>
@@ -371,17 +398,35 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
         )}
 
         {/* Active Funds List */}
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Active Emergency Funds</h2>
-          
-          {loading ? (
-            <div className="text-center py-4">Loading...</div>
+        <section aria-label="Active Emergency Funds">
+          <h2 className="text-xl font-semibold mb-4">Active Emergency Funds</h2>
+
+          {listLoading ? (
+            <SkeletonList count={3} />
+          ) : listError ? (
+            <ErrorState message={listError} onRetry={loadActiveFunds} />
           ) : funds.length === 0 ? (
-            <div className="text-gray-500 text-center py-4">No active funds found</div>
+            <EmptyState
+              title="No active funds"
+              description="Deploy an emergency fund to get started."
+              icon="💰"
+              action={
+                <button
+                  onClick={() => setShowCreateForm(true)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  Create Emergency Fund
+                </button>
+              }
+            />
           ) : (
-            <div className="grid gap-4">
+            <div className="grid gap-4" role="list" aria-label="Emergency funds">
               {funds.map((fund) => (
-                <div key={fund.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                <div
+                  key={fund.id}
+                  role="listitem"
+                  className="border rounded-lg p-4 hover:shadow-md transition-shadow"
+                >
                   <div className="flex justify-between items-start">
                     <div>
                       <h3 className="font-semibold text-lg">{fund.name}</h3>
@@ -394,7 +439,6 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
                         <p><strong>Expires:</strong> {formatDate(fund.expiresAt)}</p>
                       </div>
                     </div>
-                    
                     <div className="text-right">
                       <div className={`font-semibold ${getFundStatusColor(fund)}`}>
                         {fund.isActive ? 'Active' : 'Inactive'}
@@ -406,17 +450,16 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
                           (parseInt(fund.totalAmount) - parseInt(fund.releasedAmount)).toString()
                         )}</p>
                       </div>
-                      
-                      <div className="mt-4 space-x-2">
+                      <div className="mt-4 flex gap-2 justify-end">
                         <button
                           onClick={() => handleMonitorFund(fund.id)}
-                          className="bg-blue-500 text-white px-3 py-1 text-sm rounded hover:bg-blue-600"
+                          className="bg-blue-500 text-white px-3 py-1 text-sm rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400"
                         >
                           Monitor
                         </button>
                         <button
                           onClick={() => aidClient.generateFundQRCode(fund.id, fund)}
-                          className="bg-green-500 text-white px-3 py-1 text-sm rounded hover:bg-green-600"
+                          className="bg-green-500 text-white px-3 py-1 text-sm rounded hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400"
                         >
                           QR Code
                         </button>
@@ -427,13 +470,18 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
               ))}
             </div>
           )}
-        </div>
+        </section>
 
         {/* Fund Details Modal */}
         {selectedFund && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="fund-modal-title"
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-40"
+          >
             <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-screen overflow-y-auto">
-              <h2 className="text-2xl font-bold mb-4">{selectedFund.name}</h2>
+              <h2 id="fund-modal-title" className="text-2xl font-bold mb-4">{selectedFund.name}</h2>
               <div className="space-y-4">
                 <div>
                   <h3 className="font-semibold">Fund Details</h3>
@@ -446,12 +494,10 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
                     <p><strong>Expires:</strong> {formatDate(selectedFund.expiresAt)}</p>
                   </div>
                 </div>
-                
                 <div>
                   <h3 className="font-semibold">Description</h3>
                   <p className="text-gray-600">{selectedFund.description}</p>
                 </div>
-                
                 <div>
                   <h3 className="font-semibold">Disaster Information</h3>
                   <div className="grid grid-cols-2 gap-4 mt-2">
@@ -460,11 +506,10 @@ export const EmergencyDeployer: React.FC<EmergencyDeployerProps> = ({
                   </div>
                 </div>
               </div>
-              
               <div className="mt-6 flex justify-end">
                 <button
                   onClick={() => setSelectedFund(null)}
-                  className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400"
+                  className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400"
                 >
                   Close
                 </button>
