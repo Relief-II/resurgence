@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { BeneficiaryClient, BeneficiaryProfile, VerificationFactor, NetworkConfig, PaginationCursor } from '../../sdk/src/types';
+import { BeneficiaryProfile, VerificationFactor, NetworkConfig, PaginationCursor } from '../../../sdk/src/types';
+import { BeneficiaryClient } from '../../../sdk/src/beneficiaryClient';
 
 const PAGE_SIZE = 20;
 
