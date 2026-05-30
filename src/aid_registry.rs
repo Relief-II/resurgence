@@ -222,6 +222,18 @@ impl AidRegistry {
             }
         }
         
+        // Prevent duplicate disbursements: same beneficiary + same purpose in this fund
+        let disbursement_key = Symbol::new(&env, &format!("disbursements_{}", fund_id));
+        let existing_disbursements: Map<String, DisbursementRecord> = env.storage().instance()
+            .get(&disbursement_key)
+            .unwrap_or(Map::new(&env));
+        
+        for (_, record) in existing_disbursements.iter() {
+            if record.beneficiary == beneficiary && record.purpose == purpose {
+                panic_with_error!(&env, "Duplicate disbursement: beneficiary already received funds for this purpose");
+            }
+        }
+        
         // Create disbursement record
         let disbursement_id = format!("{}_{}", fund_id, env.ledger().timestamp());
         let disbursement = DisbursementRecord {
@@ -233,13 +245,12 @@ impl AidRegistry {
             purpose,
             approved_by: approvers,
             transaction_hash: String::from_str(&env, ""), // Will be set after transaction
+            trigger_id: None,
+            is_auto_released: false,
         };
         
-        // Store disbursement
-        let disbursement_key = Symbol::new(&env, &format!("disbursements_{}", fund_id));
-        let mut disbursements: Map<String, DisbursementRecord> = env.storage().instance()
-            .get(&disbursement_key)
-            .unwrap_or(Map::new(&env));
+        // Store disbursement (reuse already-loaded map from duplicate check)
+        let mut disbursements = existing_disbursements;
         
         disbursements.set(disbursement_id.clone(), disbursement);
         env.storage().instance().set(&disbursement_key, &disbursements);
