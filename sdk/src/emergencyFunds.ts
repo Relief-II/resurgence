@@ -30,6 +30,7 @@ export interface EmergencyFund {
   currentStatus: 'active' | 'triggered' | 'released' | 'recalled' | 'expired';
   fundAllocation: FundAllocation[];
   reservedForRecall: string;
+  metadata: Record<string, string>;
 }
 
 export interface Trigger {
@@ -135,7 +136,8 @@ export class EmergencyFundsClient {
     geographicScope: string,
     expiresAt: number,
     signersArray: string[],
-    requiredSignatures: number
+    requiredSignatures: number,
+    metadata: Record<string, string> = {}
   ): Promise<{ success: boolean; transactionHash: string; fundId: string }> {
     try {
       const sourceAccount = await this.server.loadAccount(adminAddress);
@@ -157,7 +159,8 @@ export class EmergencyFundsClient {
             geographicScope,
             expiresAt,
             signersArray.map(s => new Address(s)),
-            requiredSignatures
+            requiredSignatures,
+            metadata
           )
         )
         .setTimeout(300)
@@ -590,6 +593,60 @@ export class EmergencyFundsClient {
       };
     } catch (error: any) {
       throw new Error(`Trigger deactivation failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Updates metadata for a fund
+   */
+  async updateMetadata(
+    adminAddress: string,
+    fundId: string,
+    metadata: Record<string, string>
+  ): Promise<{ success: boolean; transactionHash: string }> {
+    try {
+      const sourceAccount = await this.server.loadAccount(adminAddress);
+      const contract = new Contract(this.contractId);
+
+      const transaction = new TransactionBuilder(sourceAccount, {
+        fee: BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(
+          contract.call(
+            'update_metadata',
+            new Address(adminAddress),
+            fundId,
+            metadata
+          )
+        )
+        .setTimeout(300)
+        .build();
+
+      transaction.sign(this.signingKey);
+      const response = await this.server.submitTransaction(transaction);
+
+      return {
+        success: true,
+        transactionHash: response.hash,
+      };
+    } catch (error: any) {
+      throw new Error(`Metadata update failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Gets metadata for a fund
+   */
+  async getMetadata(fundId: string): Promise<Record<string, string>> {
+    try {
+      const contract = new Contract(this.contractId);
+
+      // Note: This would typically use contract.call() in a simulation
+      // For now, returning a placeholder structure
+      return {};
+    } catch (error: any) {
+      throw new Error(`Failed to get fund metadata: ${error.message}`);
     }
   }
 

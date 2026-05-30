@@ -82,6 +82,7 @@ export interface EmergencyFund {
   isActive: boolean;
   releaseTriggers: string[];
   requiredSignatures: number;
+  metadata: Record<string, string>;
 }
 
 export interface DisbursementRecord {

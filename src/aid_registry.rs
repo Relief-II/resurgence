@@ -37,6 +37,7 @@ pub struct EmergencyFund {
     pub current_status: String, // "active", "triggered", "released", "recalled", "expired"
     pub fund_allocation: Vec<FundAllocation>,
     pub reserved_for_recall: U256,
+    pub metadata: Map<String, String>,
 }
 
 #[derive(Clone)]
@@ -114,6 +115,7 @@ impl AidRegistry {
         expires_at: u64,
         release_triggers: Vec<Address>,
         required_signatures: u32,
+        metadata: Map<String, String>,
     ) {
         // Verify admin authorization
         admin.require_auth();
@@ -138,6 +140,7 @@ impl AidRegistry {
             current_status: String::from_str(&env, FUND_STATUS_ACTIVE),
             fund_allocation: Vec::new(&env),
             reserved_for_recall: U256::from_u64(0),
+            metadata,
         };
         
         // Store fund
@@ -695,6 +698,38 @@ impl AidRegistry {
         
         triggers.set(trigger_id, trigger);
         env.storage().instance().set(&triggers_key, &triggers);
+    }
+
+    /// Update metadata for a fund
+    pub fn update_metadata(
+        env: Env,
+        admin: Address,
+        fund_id: String,
+        metadata: Map<String, String>,
+    ) {
+        admin.require_auth();
+        
+        let fund_key = Symbol::new(&env, "fund");
+        let mut funds: Map<String, EmergencyFund> = env.storage().instance()
+            .get(&fund_key)
+            .unwrap_or(Map::new(&env));
+        
+        let mut fund = funds.get(fund_id.clone()).unwrap_or_panic_with(&env);
+        fund.metadata = metadata;
+        
+        funds.set(fund_id, fund);
+        env.storage().instance().set(&fund_key, &funds);
+    }
+
+    /// Get metadata for a fund
+    pub fn get_metadata(env: Env, fund_id: String) -> Map<String, String> {
+        let fund_key = Symbol::new(&env, "fund");
+        let funds: Map<String, EmergencyFund> = env.storage().instance()
+            .get(&fund_key)
+            .unwrap_or(Map::new(&env));
+        
+        let fund = funds.get(fund_id).unwrap_or_panic_with(&env);
+        fund.metadata
     }
 }
 
