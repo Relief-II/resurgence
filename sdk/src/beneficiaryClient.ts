@@ -12,7 +12,9 @@ import {
   BeneficiaryProfile, 
   VerificationFactor, 
   RecoveryCode,
-  MerchantOnboardingRequest
+  MerchantOnboardingRequest,
+  PaginatedResponse,
+  PaginationOptions,
 } from './types';
 import { createHash } from 'crypto-js';
 
@@ -165,6 +167,75 @@ export class BeneficiaryClient {
     } catch (error) {
       console.error('Failed to list beneficiaries:', error);
       return [];
+    }
+  }
+
+  /**
+   * List beneficiaries by disaster with cursor-based pagination.
+   *
+   * The contract takes split cursor params (cursor_ts: u64, cursor_id: String)
+   * to avoid string parsing in the no_std Soroban environment.  This method
+   * encodes/decodes the opaque cursor string "<ts>:<id>" client-side so
+   * callers see a single opaque cursor token.
+   *
+   * Validates that `limit` is between 1 and 100 (inclusive).
+   * Throws on invalid input so callers receive clear feedback.
+   *
+   * @param disasterId - The disaster to query.
+   * @param options    - Optional `cursor` and `limit` (default 20, max 100).
+   * @returns A page of beneficiaries plus a `nextCursor` / `hasMore` flag.
+   */
+  async listBeneficiariesPaginated(
+    disasterId: string,
+    options: PaginationOptions = {}
+  ): Promise<PaginatedResponse<BeneficiaryProfile>> {
+    const { cursor = '', limit = 20 } = options;
+
+    // Input validation
+    if (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new Error('limit must be an integer between 1 and 100');
+    }
+    if (cursor !== '' && typeof cursor !== 'string') {
+      throw new Error('cursor must be a non-empty string or omitted');
+    }
+
+    // Decode opaque cursor "<ts>:<id>" into the two contract params
+    let cursorTs = 0;
+    let cursorId = '';
+    if (cursor) {
+      const sep = cursor.indexOf(':');
+      if (sep !== -1) {
+        cursorTs = parseInt(cursor.slice(0, sep), 10) || 0;
+        cursorId = cursor.slice(sep + 1);
+      }
+    }
+
+    try {
+      const result = await this.contract.call(
+        'list_beneficiaries_paginated',
+        nativeToScVal(disasterId),
+        nativeToScVal(cursorTs),
+        nativeToScVal(cursorId),
+        nativeToScVal(limit),
+      );
+
+      // Contract returns a tuple (Vec<BeneficiaryProfile>, u64, String)
+      const [beneficiaries, nextTs, nextId]: [BeneficiaryProfile[], number, string] =
+        scValToNative(result.result.retval);
+
+      // Encode next cursor; empty when no more data (nextTs === 0 && nextId === '')
+      const nextCursor = (nextTs === 0 && (!nextId || nextId === ''))
+        ? null
+        : `${nextTs}:${nextId}`;
+
+      return {
+        items: beneficiaries,
+        nextCursor,
+        hasMore: nextCursor !== null,
+      };
+    } catch (error) {
+      console.error('Failed to list beneficiaries (paginated):', error);
+      return { items: [], nextCursor: null, hasMore: false };
     }
   }
 

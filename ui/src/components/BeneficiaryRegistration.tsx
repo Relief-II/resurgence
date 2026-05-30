@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { BeneficiaryClient, BeneficiaryProfile, VerificationFactor, NetworkConfig } from '../../sdk/src/types';
+import React, { useState, useEffect, useCallback } from 'react';
+import { BeneficiaryClient, BeneficiaryProfile, VerificationFactor, NetworkConfig, PaginationCursor } from '../../sdk/src/types';
+
+const PAGE_SIZE = 20;
 
 interface BeneficiaryRegistrationProps {
   beneficiaryClient: BeneficiaryClient;
@@ -14,6 +16,9 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
 }) => {
   const [beneficiaries, setBeneficiaries] = useState<BeneficiaryProfile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<PaginationCursor | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [showRegistrationForm, setShowRegistrationForm] = useState(false);
   const [showVerificationForm, setShowVerificationForm] = useState(false);
   const [selectedBeneficiary, setSelectedBeneficiary] = useState<BeneficiaryProfile | null>(null);
@@ -52,16 +57,37 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
     loadBeneficiaries();
   }, []);
 
-  const loadBeneficiaries = async () => {
+  const loadBeneficiaries = useCallback(async () => {
     try {
       setLoading(true);
-      // Load beneficiaries for a sample disaster
-      const beneficiaries = await beneficiaryClient.listBeneficiariesByDisaster('sample_disaster_001');
-      setBeneficiaries(beneficiaries);
+      const page = await beneficiaryClient.listBeneficiariesPaginated('sample_disaster_001', {
+        limit: PAGE_SIZE,
+      });
+      setBeneficiaries(page.items);
+      setNextCursor(page.nextCursor);
+      setHasMore(page.hasMore);
     } catch (error) {
       console.error('Failed to load beneficiaries:', error);
     } finally {
       setLoading(false);
+    }
+  }, [beneficiaryClient]);
+
+  const loadMoreBeneficiaries = async () => {
+    if (!hasMore || loadingMore || !nextCursor) return;
+    try {
+      setLoadingMore(true);
+      const page = await beneficiaryClient.listBeneficiariesPaginated('sample_disaster_001', {
+        cursor: nextCursor,
+        limit: PAGE_SIZE,
+      });
+      setBeneficiaries(prev => [...prev, ...page.items]);
+      setNextCursor(page.nextCursor);
+      setHasMore(page.hasMore);
+    } catch (error) {
+      console.error('Failed to load more beneficiaries:', error);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -486,12 +512,13 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
           <h2 className="text-xl font-semibold">Registered Beneficiaries</h2>
           
           {loading ? (
-            <div className="text-center py-4">Loading...</div>
+            <div className="text-center py-8 text-gray-500" aria-live="polite">Loading beneficiaries…</div>
           ) : beneficiaries.length === 0 ? (
-            <div className="text-gray-500 text-center py-4">No beneficiaries found</div>
+            <div className="text-gray-500 text-center py-8" aria-live="polite">No beneficiaries found</div>
           ) : (
-            <div className="grid gap-4">
-              {beneficiaries.map((beneficiary) => (
+            <>
+              <div className="grid gap-4">
+                {beneficiaries.map((beneficiary) => (
                 <div key={beneficiary.id} className="border dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow bg-white dark:bg-gray-700">
                   <div className="flex justify-between items-start">
                     <div>
@@ -542,6 +569,23 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
                 </div>
               ))}
             </div>
+
+            {/* Pagination footer */}
+            <div className="mt-4 text-center">
+              {hasMore ? (
+                <button
+                  onClick={loadMoreBeneficiaries}
+                  disabled={loadingMore}
+                  className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
+                  aria-label="Load more beneficiaries"
+                >
+                  {loadingMore ? 'Loading…' : 'Load More'}
+                </button>
+              ) : (
+                <p className="text-gray-400 text-sm" aria-live="polite">All beneficiaries loaded ({beneficiaries.length} total)</p>
+              )}
+            </div>
+            </>
           )}
         </div>
 

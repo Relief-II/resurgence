@@ -11,6 +11,8 @@ module.exports = {
         esModuleInterop: true,
         strict: false,
         lib: ['ES2020', 'DOM'],
+        rootDir: '.',
+        include: ['ui/src/**/*', 'sdk/src/**/*'],
       },
     }],
   },
