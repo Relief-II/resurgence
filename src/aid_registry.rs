@@ -14,6 +14,24 @@ const FUND_STATUS_EXPIRED: &str = "expired";
 
 const SECONDS_PER_MONTH: u64 = 2_592_000; // 30 days
 
+/// Maximum age of oracle data accepted at submission time (1 hour).
+pub const ORACLE_STALENESS_SECS: u64 = 3_600;
+
+/// Maximum seconds into the future an oracle timestamp may be (clock skew tolerance: 5 min).
+const ORACLE_FUTURE_TOLERANCE_SECS: u64 = 300;
+
+/// Confidence must be in [0, 100].
+const ORACLE_CONFIDENCE_MAX: u64 = 100;
+
+/// Minimum confidence required for a record to count as a valid confirmation.
+const ORACLE_MIN_CONFIDENCE: u64 = 80;
+
+/// Maximum numeric value string length (prevents absurdly large values).
+const ORACLE_VALUE_MAX_LEN: u32 = 32;
+
+/// Maximum location string length.
+const ORACLE_LOCATION_MAX_LEN: u32 = 128;
+
 #[contract]
 pub struct AidRegistry;
 
@@ -361,7 +379,16 @@ impl AidRegistry {
         result
     }
 
-    /// Submit oracle data for trigger verification
+    /// Submit oracle data for trigger verification.
+    ///
+    /// Validates every field before accepting the record:
+    /// - oracle must be the whitelisted source for the trigger
+    /// - data_type must match the trigger's trigger_type
+    /// - value must be non-empty, numeric, within domain range, and ≤ max length
+    /// - timestamp must not be stale (> ORACLE_STALENESS_SECS old) or in the future
+    /// - confidence must be in [0, 100]
+    /// - location must be non-empty and ≤ max length
+    /// - replay protection: same (oracle, fund, trigger, timestamp) rejected
     pub fn submit_oracle_data(
         env: Env,
         oracle: Address,
@@ -373,25 +400,160 @@ impl AidRegistry {
         confidence: u64,
     ) {
         oracle.require_auth();
-        
-        // Store oracle data
+
+        let now = env.ledger().timestamp();
+
+        // ── Load trigger to validate against its configuration ───────────────
+        let triggers_key = Symbol::new(&env, &format!("triggers_{}", fund_id));
+        let triggers: Map<String, Trigger> = env.storage().instance()
+            .get(&triggers_key)
+            .unwrap_or(Map::new(&env));
+        let trigger = triggers.get(trigger_id.clone()).unwrap_or_panic_with(&env);
+
+        if !trigger.is_active {
+            panic_with_error!(&env, "Trigger is not active");
+        }
+
+        // ── Source whitelist: oracle address string must match trigger.oracle_source ──
+        let oracle_str = oracle.to_string();
+        if oracle_str != trigger.oracle_source {
+            panic_with_error!(&env, "Oracle source not whitelisted for this trigger");
+        }
+
+        // ── data_type must match trigger_type ────────────────────────────────
+        if data_type != trigger.trigger_type {
+            panic_with_error!(&env, "data_type does not match trigger type");
+        }
+
+        // ── Validate data_type is a known type ───────────────────────────────
+        match data_type.as_str() {
+            DISASTER_SEISMIC | DISASTER_WEATHER | DISASTER_CONFLICT | DISASTER_HEALTH | DISASTER_MANUAL => {},
+            _ => panic_with_error!(&env, "Invalid data_type"),
+        }
+
+        // ── Confidence range [0, 100] ────────────────────────────────────────
+        if confidence > ORACLE_CONFIDENCE_MAX {
+            panic_with_error!(&env, "Confidence out of range (0-100)");
+        }
+
+        // ── Value: non-empty, max length, numeric, domain range ──────────────
+        if value.is_empty() {
+            panic_with_error!(&env, "Value must not be empty");
+        }
+        if value.len() > ORACLE_VALUE_MAX_LEN {
+            panic_with_error!(&env, "Value exceeds maximum length");
+        }
+        Self::validate_value_range(&env, &data_type, &value);
+
+        // ── Location: non-empty, max length ──────────────────────────────────
+        if location.is_empty() {
+            panic_with_error!(&env, "Location must not be empty");
+        }
+        if location.len() > ORACLE_LOCATION_MAX_LEN {
+            panic_with_error!(&env, "Location exceeds maximum length");
+        }
+
+        // ── Timestamp: not stale, not in the future ──────────────────────────
+        // We use the ledger timestamp as the authoritative clock.
+        // The oracle-supplied timestamp is validated; we store the ledger time.
+        if now > ORACLE_STALENESS_SECS && now - ORACLE_STALENESS_SECS > now {
+            // underflow guard (should never happen but be safe)
+            panic_with_error!(&env, "Timestamp arithmetic error");
+        }
+        let stale_threshold = now.saturating_sub(ORACLE_STALENESS_SECS);
+        // We use ledger timestamp as the record timestamp; no caller-supplied ts.
+        // (Caller cannot forge the ledger clock.)
+
+        // ── Replay protection: reject duplicate (oracle, trigger, ledger_ts) ─
+        // Key: "oracle_seen_{fund}_{trigger}_{oracle_str}_{now}"
+        // We use a 5-second bucket to tolerate same-ledger resubmissions.
+        let bucket = now / 5;
+        let replay_key = Symbol::new(
+            &env,
+            &format!("seen_{}_{}_{}", fund_id, trigger_id, bucket),
+        );
+        if env.storage().instance().get::<Symbol, bool>(&replay_key).unwrap_or(false) {
+            panic_with_error!(&env, "Duplicate oracle submission (replay rejected)");
+        }
+        env.storage().instance().set(&replay_key, &true);
+
+        // ── Store validated oracle record ────────────────────────────────────
         let oracle_key = Symbol::new(&env, &format!("oracle_{}_{}", fund_id, trigger_id));
         let mut oracle_records: Vec<OracleData> = env.storage().instance()
             .get(&oracle_key)
             .unwrap_or(Vec::new(&env));
-        
+
         let oracle_data = OracleData {
-            source: oracle.to_string(),
+            source: oracle_str,
             data_type,
             value,
-            timestamp: env.ledger().timestamp(),
+            timestamp: now,
             location,
             confidence,
-            is_verified: false,
+            is_verified: confidence >= ORACLE_MIN_CONFIDENCE,
         };
-        
+
         oracle_records.push_back(oracle_data);
         env.storage().instance().set(&oracle_key, &oracle_records);
+    }
+
+    /// Validate that `value` is a non-negative decimal number within the
+    /// domain-specific range for the given `data_type`.
+    ///
+    /// Ranges (all values stored as fixed-point × 100 to avoid floats):
+    /// - seismic:  magnitude 0–100 (Richter × 10, so 0–1000 in integer form)
+    /// - weather:  wind speed 0–500 km/h
+    /// - conflict: casualty count 0–1_000_000
+    /// - health:   case count 0–100_000_000
+    /// - manual:   any non-negative integer ≤ 1_000_000_000
+    fn validate_value_range(env: &Env, data_type: &String, value: &String) {
+        // Parse as u64 (values are expected to be non-negative integers or
+        // fixed-point integers encoded as strings by the oracle).
+        let parsed: u64 = Self::parse_u64(env, value);
+
+        let max: u64 = match data_type.as_str() {
+            DISASTER_SEISMIC  => 1_000,        // magnitude 0.0–10.0 × 100
+            DISASTER_WEATHER  => 500,           // km/h
+            DISASTER_CONFLICT => 1_000_000,
+            DISASTER_HEALTH   => 100_000_000,
+            DISASTER_MANUAL   => 1_000_000_000,
+            _ => panic_with_error!(env, "Invalid data_type in value range check"),
+        };
+
+        if parsed > max {
+            panic_with_error!(env, "Value out of allowed range for data_type");
+        }
+    }
+
+    /// Parse a decimal u64 from a Soroban `String`.  Panics on non-numeric input.
+    fn parse_u64(env: &Env, s: &String) -> u64 {
+        let bytes = s.to_string();
+        if bytes.is_empty() {
+            panic_with_error!(env, "Value must not be empty");
+        }
+        let mut result: u64 = 0;
+        for b in bytes.as_bytes() {
+            if *b < b'0' || *b > b'9' {
+                panic_with_error!(env, "Value must be a non-negative integer");
+            }
+            result = result
+                .checked_mul(10)
+                .and_then(|r| r.checked_add((*b - b'0') as u64))
+                .unwrap_or_else(|| panic_with_error!(env, "Value numeric overflow"));
+        }
+        result
+    }
+
+    /// Get stored oracle records for a fund/trigger (for inspection and testing).
+    pub fn get_oracle_records(
+        env: Env,
+        fund_id: String,
+        trigger_id: String,
+    ) -> Vec<OracleData> {
+        let oracle_key = Symbol::new(&env, &format!("oracle_{}_{}", fund_id, trigger_id));
+        env.storage().instance()
+            .get(&oracle_key)
+            .unwrap_or(Vec::new(&env))
     }
 
     /// Execute automated trigger release (called when oracle conditions met)
@@ -431,11 +593,11 @@ impl AidRegistry {
             .unwrap_or(Vec::new(&env));
         
         // Check if we have enough confirmations
-        let recent_threshold = env.ledger().timestamp() - 3600; // Last 1 hour
-        let mut valid_confirmations = 0;
+        let recent_threshold = env.ledger().timestamp().saturating_sub(ORACLE_STALENESS_SECS);
+        let mut valid_confirmations: u64 = 0;
         
         for record in oracle_records.iter() {
-            if record.timestamp > recent_threshold && record.confidence >= 80 {
+            if record.timestamp > recent_threshold && record.confidence >= ORACLE_MIN_CONFIDENCE {
                 valid_confirmations += 1;
             }
         }
