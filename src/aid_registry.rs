@@ -11,6 +11,7 @@ const FUND_STATUS_TRIGGERED: &str = "triggered";
 const FUND_STATUS_RELEASED: &str = "released";
 const FUND_STATUS_RECALLED: &str = "recalled";
 const FUND_STATUS_EXPIRED: &str = "expired";
+pub const FUND_STATUS_ARCHIVED: &str = "archived";
 
 const SECONDS_PER_MONTH: u64 = 2_592_000; // 30 days
 
@@ -52,9 +53,13 @@ pub struct EmergencyFund {
     pub auto_release_enabled: bool,
     pub recall_enabled: bool,
     pub recall_after_months: u32,
-    pub current_status: String, // "active", "triggered", "released", "recalled", "expired"
+    pub current_status: String, // "active", "triggered", "released", "recalled", "expired", "archived"
     pub fund_allocation: Vec<FundAllocation>,
     pub reserved_for_recall: U256,
+    // Archive fields — all None when not archived
+    pub archived_at: Option<u64>,
+    pub archive_reason: Option<String>,
+    pub pre_archive_status: Option<String>, // status before archiving, used for restore
 }
 
 #[derive(Clone)]
@@ -156,6 +161,9 @@ impl AidRegistry {
             current_status: String::from_str(&env, FUND_STATUS_ACTIVE),
             fund_allocation: Vec::new(&env),
             reserved_for_recall: U256::from_u64(0),
+            archived_at: None,
+            archive_reason: None,
+            pre_archive_status: None,
         };
         
         // Store fund
@@ -407,6 +415,13 @@ impl AidRegistry {
         
         if funds.get(fund_id.clone()).is_none() {
             panic_with_error!(&env, "Fund does not exist");
+        }
+        
+        // Archived funds cannot receive new triggers
+        if let Some(f) = funds.get(fund_id.clone()) {
+            if f.current_status == String::from_str(&env, FUND_STATUS_ARCHIVED) {
+                panic_with_error!(&env, "Fund is archived");
+            }
         }
         
         // Validate trigger type
@@ -807,6 +822,11 @@ impl AidRegistry {
         
         let mut fund = funds.get(fund_id.clone()).unwrap_or_panic_with(&env);
         
+        // Archived funds cannot receive new allocations
+        if fund.current_status == String::from_str(&env, FUND_STATUS_ARCHIVED) {
+            panic_with_error!(&env, "Fund is archived");
+        }
+        
         // Create allocation
         let allocation = FundAllocation {
             sector,
@@ -937,6 +957,122 @@ impl AidRegistry {
         
         triggers.set(trigger_id, trigger);
         env.storage().instance().set(&triggers_key, &triggers);
+    }
+
+    /// Archive a fund. Archived funds are hidden from default views but all
+    /// historical data (disbursements, allocations, triggers) is preserved.
+    /// Archived funds cannot participate in active operations.
+    ///
+    /// Any non-archived fund status may be archived.
+    /// Requires admin authorization.
+    pub fn archive_fund(
+        env: Env,
+        admin: Address,
+        fund_id: String,
+        reason: String,
+    ) {
+        admin.require_auth();
+
+        let fund_key = Symbol::new(&env, "fund");
+        let mut funds: Map<String, EmergencyFund> = env.storage().instance()
+            .get(&fund_key)
+            .unwrap_or(Map::new(&env));
+
+        let mut fund = funds.get(fund_id.clone()).unwrap_or_panic_with(&env);
+
+        if fund.current_status == String::from_str(&env, FUND_STATUS_ARCHIVED) {
+            panic_with_error!(&env, "Fund is already archived");
+        }
+
+        // Preserve the current status so restore can return to it
+        fund.pre_archive_status = Some(fund.current_status.clone());
+        fund.archived_at = Some(env.ledger().timestamp());
+        fund.archive_reason = Some(reason);
+        fund.is_active = false;
+        fund.current_status = String::from_str(&env, FUND_STATUS_ARCHIVED);
+
+        funds.set(fund_id.clone(), fund);
+        env.storage().instance().set(&fund_key, &funds);
+
+        // Append to audit log
+        Self::append_audit_log(&env, &fund_id, String::from_str(&env, "archived"), &admin);
+    }
+
+    /// Restore an archived fund back to its pre-archive status.
+    /// Requires admin authorization.
+    pub fn restore_fund(
+        env: Env,
+        admin: Address,
+        fund_id: String,
+    ) {
+        admin.require_auth();
+
+        let fund_key = Symbol::new(&env, "fund");
+        let mut funds: Map<String, EmergencyFund> = env.storage().instance()
+            .get(&fund_key)
+            .unwrap_or(Map::new(&env));
+
+        let mut fund = funds.get(fund_id.clone()).unwrap_or_panic_with(&env);
+
+        if fund.current_status != String::from_str(&env, FUND_STATUS_ARCHIVED) {
+            panic_with_error!(&env, "Fund is not archived");
+        }
+
+        // Restore to the status the fund held before archiving
+        let restored_status = fund.pre_archive_status
+            .clone()
+            .unwrap_or(String::from_str(&env, FUND_STATUS_ACTIVE));
+
+        // A fund is only set back to is_active=true if the restored status
+        // is one that implies active participation.
+        let is_active_status = restored_status == String::from_str(&env, FUND_STATUS_ACTIVE)
+            || restored_status == String::from_str(&env, FUND_STATUS_TRIGGERED);
+
+        fund.current_status = restored_status;
+        fund.is_active = is_active_status;
+        fund.archived_at = None;
+        fund.archive_reason = None;
+        fund.pre_archive_status = None;
+
+        funds.set(fund_id.clone(), fund);
+        env.storage().instance().set(&fund_key, &funds);
+
+        Self::append_audit_log(&env, &fund_id, String::from_str(&env, "restored"), &admin);
+    }
+
+    /// List all archived funds (for admin/audit views).
+    pub fn list_archived_funds(env: Env) -> Vec<EmergencyFund> {
+        let fund_key = Symbol::new(&env, "fund");
+        let funds: Map<String, EmergencyFund> = env.storage().instance()
+            .get(&fund_key)
+            .unwrap_or(Map::new(&env));
+
+        let mut archived = Vec::new(&env);
+        for (_, fund) in funds.iter() {
+            if fund.current_status == String::from_str(&env, FUND_STATUS_ARCHIVED) {
+                archived.push_back(fund);
+            }
+        }
+        archived
+    }
+
+    /// Return the audit log entries for a fund.
+    /// Each entry is (action, actor_address, timestamp).
+    pub fn get_fund_audit_log(env: Env, fund_id: String) -> Vec<(String, Address, u64)> {
+        let log_key = Symbol::new(&env, &format!("audit_{}", fund_id));
+        env.storage().instance()
+            .get(&log_key)
+            .unwrap_or(Vec::new(&env))
+    }
+
+    /// Internal helper — append one entry to a fund's audit log.
+    fn append_audit_log(env: &Env, fund_id: &String, action: String, actor: &Address) {
+        let log_key = Symbol::new(env, &format!("audit_{}", fund_id));
+        let mut log: Vec<(String, Address, u64)> = env.storage().instance()
+            .get(&log_key)
+            .unwrap_or(Vec::new(env));
+        log.push_back((action, actor.clone(), env.ledger().timestamp()));
+        env.storage().instance().set(&log_key, &log);
     }
 }
 
