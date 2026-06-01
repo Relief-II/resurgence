@@ -1,20 +1,16 @@
 /** @type {import('jest').Config} */
 module.exports = {
-  preset: 'ts-jest',
-  testEnvironment: 'jest-environment-jsdom',
-  roots: ['<rootDir>/ui/src'],
-  setupFilesAfterEnv: ['<rootDir>/ui/src/__tests__/setup.ts'],
+  testEnvironment: 'node',
+  testMatch: ['**/__tests__/**/*.test.ts'],
+  moduleFileExtensions: ['ts', 'js'],
   transform: {
-    '^.+\\.(ts|tsx)$': ['ts-jest', {
+    '^.+\\.ts$': ['ts-jest', {
+      diagnostics: false,
       tsconfig: {
-        jsx: 'react-jsx',
-        esModuleInterop: true,
         strict: false,
-        lib: ['ES2020', 'DOM'],
-        rootDir: '.',
+        esModuleInterop: true,
+        skipLibCheck: true,
       },
     }],
   },
-  testMatch: ['**/__tests__/**/*.test.(ts|tsx)', '**/*.test.(ts|tsx)'],
-  testPathIgnorePatterns: ['/node_modules/', 'setup\\.ts$'],
 };

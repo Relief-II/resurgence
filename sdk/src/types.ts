@@ -95,6 +95,24 @@ export interface DisbursementRecord {
   transactionHash: string;
 }
 
+/** A single entry within a batch disbursement request */
+export interface BatchDisbursementEntry {
+  beneficiary: string;
+  amount: string;
+  purpose: string;
+}
+
+/** Result returned after submitting a batch disbursement */
+export interface BatchDisbursementResult {
+  success: boolean;
+  fundId: string;
+  disbursementIds: string[];
+  totalAmount: string;
+  count: number;
+  transactionHash?: string;
+  error?: string;
+}
+
 export interface ConditionalTransfer {
   id: string;
   beneficiaryId: string;
