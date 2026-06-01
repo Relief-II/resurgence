@@ -132,6 +132,7 @@ impl BeneficiaryManager {
             family_size,
             special_needs,
             trust_score: 50, // Initial trust score
+            identity: None,
         };
         
         beneficiaries.set(beneficiary_id.clone(), profile);
@@ -303,69 +304,47 @@ impl BeneficiaryManager {
         result
     }
 
-    /// Search and filter beneficiaries with cursor-based pagination.
+    /// List beneficiaries by disaster with cursor-based pagination.
     ///
-    /// Parameters
-    /// ----------
-    /// - `disaster_id`      – required; scope all results to this disaster.
-    /// - `search`           – substring match against `id` and `name`
-    ///                        (empty string = no text filter).
-    /// - `location_filter`  – exact match on `location`
-    ///                        (empty string = no location filter).
-    /// - `active_only`      – when `true` only active beneficiaries are returned.
-    /// - `min_trust_score`  – inclusive lower bound on `trust_score` (0 = no filter).
-    /// - `cursor_ts`        – `registration_date` of last item on previous page (0 = first page).
-    /// - `cursor_id`        – `id` of last item on previous page ("" = first page).
-    /// - `limit`            – page size, clamped to [1, 100], default 20.
+    /// Cursor is split into two parameters to avoid string parsing in the
+    /// no_std Soroban environment:
+    ///   - `cursor_ts`  – `registration_date` of the last item on the previous
+    ///                    page (pass `0` for the first page).
+    ///   - `cursor_id`  – `id` of the last item on the previous page (pass an
+    ///                    empty string for the first page).
     ///
-    /// Returns `(page, next_ts, next_id)`.  `next_ts == 0 && next_id == ""`
-    /// means no more data.
-    pub fn search_beneficiaries_paginated(
+    /// Results are ordered by (registration_date ASC, id ASC) for stable
+    /// ordering even when new registrations arrive between pages.
+    ///
+    /// `limit` is clamped to [1, 100].  Returns the page of profiles plus the
+    /// cursor values to use for the next call (`next_ts == 0` and
+    /// `next_id.is_empty()` means no more data).
+    pub fn list_beneficiaries_paginated(
         env: Env,
         disaster_id: String,
-        search: String,
-        location_filter: String,
-        active_only: bool,
-        min_trust_score: u32,
         cursor_ts: u64,
         cursor_id: String,
         limit: u32,
     ) -> (Vec<BeneficiaryProfile>, u64, String) {
+        // Validate and clamp limit
         let page_size = if limit == 0 { 20 } else if limit > 100 { 100 } else { limit };
-        let empty_str = String::from_str(&env, "");
 
         let beneficiaries_key = Symbol::new(&env, "beneficiaries");
         let beneficiaries: Map<String, BeneficiaryProfile> = env.storage().instance()
             .get(&beneficiaries_key)
             .unwrap_or(Map::new(&env));
 
-        // Collect matching profiles
+        // Collect matching profiles into a sortable Vec
         let mut all: Vec<BeneficiaryProfile> = Vec::new(&env);
         for (_, profile) in beneficiaries.iter() {
-            if profile.disaster_id != disaster_id {
-                continue;
+            if profile.disaster_id == disaster_id && profile.is_active {
+                all.push_back(profile);
             }
-            if active_only && !profile.is_active {
-                continue;
-            }
-            if profile.trust_score < min_trust_score {
-                continue;
-            }
-            if location_filter != empty_str && profile.location != location_filter {
-                continue;
-            }
-            // Substring search on id and name (case-sensitive in no_std)
-            if search != empty_str {
-                let id_match = profile.id.to_string().contains(search.to_string().as_str());
-                let name_match = profile.name.to_string().contains(search.to_string().as_str());
-                if !id_match && !name_match {
-                    continue;
-                }
-            }
-            all.push_back(profile);
         }
 
-        // Insertion sort by (registration_date ASC, id ASC)
+        // Sort by (registration_date ASC, id ASC) for stable ordering.
+        // Soroban Vec doesn't have sort_by, so we use insertion sort
+        // (dataset sizes are bounded by contract storage limits).
         let len = all.len();
         for i in 1..len {
             let mut j = i;
@@ -387,8 +366,11 @@ impl BeneficiaryManager {
             }
         }
 
-        // Cursor seek
-        let is_first_page = cursor_ts == 0 && cursor_id == empty_str;
+        // Determine whether we are on the first page
+        let empty_id = String::from_str(&env, "");
+        let is_first_page = cursor_ts == 0 && cursor_id == empty_id;
+
+        // Skip entries up to and including the cursor position
         let mut page: Vec<BeneficiaryProfile> = Vec::new(&env);
         let mut past_cursor = is_first_page;
 
@@ -405,8 +387,9 @@ impl BeneficiaryManager {
             }
         }
 
+        // Return next cursor from the last item in the page, or (0, "") if done
         if page.len() < page_size {
-            (page, 0u64, empty_str)
+            (page, 0u64, empty_id)
         } else {
             let last = page.get(page.len() - 1).unwrap();
             (page, last.registration_date, last.id.clone())
