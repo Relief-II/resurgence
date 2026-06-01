@@ -334,6 +334,58 @@ export class EmergencyFundsClient {
   }
 
   /**
+   * Executes batch multi-sig release for multiple beneficiaries atomically.
+   * All entries succeed or all fail.
+   *
+   * @param fundId    Fund to draw from
+   * @param entries   Array of { beneficiary, amount, purpose }
+   * @param approvers Keypairs of multi-sig approvers
+   */
+  async executeBatchMultiSigRelease(
+    fundId: string,
+    entries: Array<{ beneficiary: string; amount: string; purpose: string }>,
+    approvers: Keypair[]
+  ): Promise<{ success: boolean; transactionHash: string; count: number }> {
+    if (entries.length === 0) {
+      throw new Error('Batch must contain at least one entry');
+    }
+
+    try {
+      const primaryAccount = await this.server.loadAccount(approvers[0].publicKey());
+      const contract = new Contract(this.contractId);
+
+      const transaction = new TransactionBuilder(primaryAccount, {
+        fee: String(Number(BASE_FEE) * approvers.length),
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(
+          contract.call(
+            'submit_batch_disbursement',
+            new Address(approvers[0].publicKey()),
+            fundId,
+            entries.map(e => [new Address(e.beneficiary), e.amount, e.purpose]),
+            approvers.map(a => new Address(a.publicKey()))
+          )
+        )
+        .setTimeout(300)
+        .build();
+
+      for (const approver of approvers) {
+        transaction.sign(approver);
+      }
+
+      const response = await this.server.submitTransaction(transaction);
+      return {
+        success: true,
+        transactionHash: response.hash,
+        count: entries.length,
+      };
+    } catch (error: any) {
+      throw new Error(`Batch multi-sig release failed: ${error.message}`);
+    }
+  }
+
+  /**
    * Executes multi-sig manual release requiring 2-of-3 approvals
    * Requires authorization from NGO, government, or UN representatives
    */
