@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TransferClient, ConditionalTransfer, SpendingRule, NetworkConfig } from '../../sdk/src/types';
 
 interface TransferCardProps {
@@ -7,55 +7,67 @@ interface TransferCardProps {
   creatorKey: string;
 }
 
-export const TransferCard: React.FC<TransferCardProps> = ({
-  transferClient,
-  config,
-  creatorKey
-}) => {
+export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, config, creatorKey }) => {
   const [transfers, setTransfers] = useState<ConditionalTransfer[]>([]);
   const [loading, setLoading] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showSpendForm, setShowSpendForm] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<ConditionalTransfer | null>(null);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
-  // Create transfer form state
+  const modalRef = useRef<HTMLDivElement>(null);
+  const openModalTriggerRef = useRef<HTMLButtonElement | null>(null);
+
   const [createForm, setCreateForm] = useState({
-    transferId: '',
-    beneficiaryId: '',
-    amount: '',
-    token: 'XLM',
-    expiresAt: '',
-    purpose: '',
+    transferId: '', beneficiaryId: '', amount: '', token: 'XLM', expiresAt: '', purpose: '',
     rules: [
-      { type: 'category_limit', category: 'food', limit: '500' },
-      { type: 'category_limit', category: 'medical', limit: '300' },
-      { type: 'time_window', startTime: '', endTime: '' },
-      { type: 'location_based', location: '' }
+      { type: 'category_limit', category: 'food', limit: '500', startTime: '', endTime: '', location: '' },
+      { type: 'category_limit', category: 'medical', limit: '300', startTime: '', endTime: '', location: '' },
+      { type: 'time_window', category: '', limit: '', startTime: '', endTime: '', location: '' },
+      { type: 'location_based', category: '', limit: '', startTime: '', endTime: '', location: '' }
     ]
   });
 
-  // Spend form state
   const [spendForm, setSpendForm] = useState({
-    transferId: '',
-    beneficiaryKey: '',
-    merchantId: '',
-    amount: '',
-    category: 'food',
-    location: ''
+    transferId: '', beneficiaryKey: '', merchantId: '', amount: '', category: 'food', location: ''
   });
 
+  useEffect(() => { loadTransfers(); }, []);
+
   useEffect(() => {
-    loadTransfers();
-  }, []);
+    if (!selectedTransfer) return;
+    const focusable = modalRef.current?.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (!focusable?.length) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    first.focus();
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { closeModal(); }
+      else if (e.key === 'Tab') {
+        if (e.shiftKey) { if (document.activeElement === first) { e.preventDefault(); last.focus(); } }
+        else { if (document.activeElement === last) { e.preventDefault(); first.focus(); } }
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [selectedTransfer]);
+
+  const closeModal = () => {
+    setSelectedTransfer(null);
+    openModalTriggerRef.current?.focus();
+  };
 
   const loadTransfers = async () => {
     try {
       setLoading(true);
-      // Load transfers for a sample beneficiary
-      const beneficiaryTransfers = await transferClient.listBeneficiaryTransfers('sample_beneficiary_001');
-      setTransfers(beneficiaryTransfers);
+      const list = await transferClient.listBeneficiaryTransfers('sample_beneficiary_001');
+      setTransfers(list);
     } catch (error) {
       console.error('Failed to load transfers:', error);
+      setErrorMessage('Failed to load transfers.');
     } finally {
       setLoading(false);
     }
@@ -63,56 +75,36 @@ export const TransferCard: React.FC<TransferCardProps> = ({
 
   const handleCreateTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage('');
     try {
       setLoading(true);
-      
-      // Create spending rules
       const spendingRules: SpendingRule[] = [];
-      
       createForm.rules.forEach(rule => {
-        if (rule.type === 'category_limit' && rule.category && rule.limit) {
+        if (rule.type === 'category_limit' && rule.category && rule.limit)
           spendingRules.push(transferClient.createCategoryLimitRule(rule.category, rule.limit));
-        } else if (rule.type === 'time_window' && rule.startTime && rule.endTime) {
-          spendingRules.push(transferClient.createTimeWindowRule(
-            new Date(rule.startTime).getTime(),
-            new Date(rule.endTime).getTime()
-          ));
-        } else if (rule.type === 'location_based' && rule.location) {
+        else if (rule.type === 'time_window' && rule.startTime && rule.endTime)
+          spendingRules.push(transferClient.createTimeWindowRule(new Date(rule.startTime).getTime(), new Date(rule.endTime).getTime()));
+        else if (rule.type === 'location_based' && rule.location)
           spendingRules.push(transferClient.createLocationRule(rule.location));
-        }
       });
-
       await transferClient.createTransfer(
-        creatorKey,
-        createForm.transferId,
-        createForm.beneficiaryId,
-        createForm.amount,
-        createForm.token,
-        new Date(createForm.expiresAt).getTime(),
-        spendingRules,
-        createForm.purpose
+        creatorKey, createForm.transferId, createForm.beneficiaryId, createForm.amount,
+        createForm.token, new Date(createForm.expiresAt).getTime(), spendingRules, createForm.purpose
       );
-
       setShowCreateForm(false);
-      setCreateForm({
-        transferId: '',
-        beneficiaryId: '',
-        amount: '',
-        token: 'XLM',
-        expiresAt: '',
-        purpose: '',
+      setCreateForm({ transferId: '', beneficiaryId: '', amount: '', token: 'XLM', expiresAt: '', purpose: '',
         rules: [
-          { type: 'category_limit', category: 'food', limit: '500' },
-          { type: 'category_limit', category: 'medical', limit: '300' },
-          { type: 'time_window', startTime: '', endTime: '' },
-          { type: 'location_based', location: '' }
+          { type: 'category_limit', category: 'food', limit: '500', startTime: '', endTime: '', location: '' },
+          { type: 'category_limit', category: 'medical', limit: '300', startTime: '', endTime: '', location: '' },
+          { type: 'time_window', category: '', limit: '', startTime: '', endTime: '', location: '' },
+          { type: 'location_based', category: '', limit: '', startTime: '', endTime: '', location: '' }
         ]
       });
+      setStatusMessage('Conditional transfer created successfully.');
       loadTransfers();
-      alert('Conditional transfer created successfully!');
     } catch (error) {
       console.error('Failed to create transfer:', error);
-      alert('Failed to create transfer');
+      setErrorMessage('Failed to create transfer.');
     } finally {
       setLoading(false);
     }
@@ -120,36 +112,24 @@ export const TransferCard: React.FC<TransferCardProps> = ({
 
   const handleSpend = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage('');
     try {
       setLoading(true);
-      
       const success = await transferClient.spend(
-        spendForm.beneficiaryKey,
-        spendForm.transferId,
-        spendForm.merchantId,
-        spendForm.amount,
-        spendForm.category,
-        spendForm.location
+        spendForm.beneficiaryKey, spendForm.transferId, spendForm.merchantId,
+        spendForm.amount, spendForm.category, spendForm.location
       );
-
       if (success) {
-        alert('Payment processed successfully!');
+        setStatusMessage('Payment processed successfully.');
         setShowSpendForm(false);
-        setSpendForm({
-          transferId: '',
-          beneficiaryKey: '',
-          merchantId: '',
-          amount: '',
-          category: 'food',
-          location: ''
-        });
+        setSpendForm({ transferId: '', beneficiaryKey: '', merchantId: '', amount: '', category: 'food', location: '' });
         loadTransfers();
       } else {
-        alert('Payment rejected by spending rules');
+        setErrorMessage('Payment rejected by spending rules.');
       }
     } catch (error) {
       console.error('Failed to process payment:', error);
-      alert('Failed to process payment');
+      setErrorMessage('Failed to process payment.');
     } finally {
       setLoading(false);
     }
@@ -159,47 +139,36 @@ export const TransferCard: React.FC<TransferCardProps> = ({
     try {
       setLoading(true);
       const result = await transferClient.recallFunds(creatorKey, transferId);
-      alert(result);
+      setStatusMessage(result);
       loadTransfers();
     } catch (error) {
       console.error('Failed to recall funds:', error);
-      alert('Failed to recall funds');
+      setErrorMessage('Failed to recall funds.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleExtendExpiry = async (transferId: string) => {
+  const handleExtendExpiry = async (transferId: string, newExpiry: string) => {
     try {
-      const newExpiry = prompt('Enter new expiry date (YYYY-MM-DD):');
-      if (!newExpiry) return;
-
       setLoading(true);
       await transferClient.extendExpiry(creatorKey, transferId, new Date(newExpiry).getTime());
-      alert('Transfer expiry extended successfully!');
+      setStatusMessage('Transfer expiry extended successfully.');
       loadTransfers();
     } catch (error) {
       console.error('Failed to extend expiry:', error);
-      alert('Failed to extend expiry');
+      setErrorMessage('Failed to extend expiry.');
     } finally {
       setLoading(false);
     }
   };
 
-  const getStatusColor = (transfer: ConditionalTransfer) => {
+  const getTransferStatus = (transfer: ConditionalTransfer): { label: string; className: string } => {
     const now = Date.now();
-    if (!transfer.isActive) return 'text-gray-600';
-    if (now > transfer.expiresAt) return 'text-red-600';
-    if (now > transfer.expiresAt - (7 * 24 * 60 * 60 * 1000)) return 'text-yellow-600';
-    return 'text-green-600';
-  };
-
-  const getStatusText = (transfer: ConditionalTransfer) => {
-    const now = Date.now();
-    if (!transfer.isActive) return 'Inactive';
-    if (now > transfer.expiresAt) return 'Expired';
-    if (now > transfer.expiresAt - (7 * 24 * 60 * 60 * 1000)) return 'Expiring Soon';
-    return 'Active';
+    if (!transfer.isActive) return { label: 'Inactive', className: 'text-gray-600' };
+    if (now > transfer.expiresAt) return { label: 'Expired', className: 'text-red-600' };
+    if (now > transfer.expiresAt - 7 * 24 * 60 * 60 * 1000) return { label: 'Expiring Soon', className: 'text-yellow-600' };
+    return { label: 'Active', className: 'text-green-600' };
   };
 
   const getUtilizationRate = (transfer: ConditionalTransfer) => {
@@ -208,458 +177,594 @@ export const TransferCard: React.FC<TransferCardProps> = ({
     return Number((spent * BigInt(100)) / total);
   };
 
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleDateString();
-  };
+  const formatDate = (timestamp: number) => new Date(timestamp).toLocaleDateString();
 
   return (
-    <div className="max-w-6xl mx-auto p-6 bg-gray-100 dark:bg-gray-900 min-h-screen">
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 mb-6">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Conditional Cash Transfers</h1>
-        <p className="text-gray-600 dark:text-gray-300 mb-6">
-          Conditional cash transfers with spending rules and expiry management
-        </p>
+    <div className="max-w-6xl mx-auto p-6">
+      {/* Skip link */}
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 bg-white px-4 py-2 z-50">
+        Skip to main content
+      </a>
 
-        <div className="flex space-x-4 mb-6">
-          <button
-            onClick={() => setShowCreateForm(!showCreateForm)}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-          >
-            Create Transfer
-          </button>
-          <button
-            onClick={() => setShowSpendForm(!showSpendForm)}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-          >
-            Process Payment
-          </button>
-          <button
-            onClick={() => transferClient.cleanupExpiredTransfers()}
-            disabled={loading}
-            className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700"
-          >
-            Cleanup Expired
-          </button>
-        </div>
+      {/* Live regions for screen reader announcements */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">{statusMessage}</div>
+      <div role="alert" aria-live="assertive" aria-atomic="true" className="sr-only">{errorMessage}</div>
 
-        {/* Create Transfer Form */}
-        {showCreateForm && (
-          <div className="bg-blue-50 p-6 rounded-lg mb-6">
-            <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Create Conditional Transfer</h2>
-            <form onSubmit={handleCreateTransfer} className="space-y-4">
+      <main id="main-content">
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Conditional Transfer Cards</h1>
+          <p className="text-gray-600 mb-6">Manage conditional cash transfers with spending rules</p>
+
+          {errorMessage && (
+            <div role="alert" className="mb-4 p-3 bg-red-50 border border-red-300 rounded text-red-800">{errorMessage}</div>
+          )}
+          {statusMessage && (
+            <div role="status" className="mb-4 p-3 bg-green-50 border border-green-300 rounded text-green-800">{statusMessage}</div>
+          )}
+
+          <div className="flex flex-wrap gap-4 mb-6">
+            <button
+              ref={openModalTriggerRef}
+              onClick={() => setShowCreateForm(v => !v)}
+              aria-expanded={showCreateForm}
+              aria-controls="create-transfer-form"
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              {showCreateForm ? 'Hide Create Form' : 'Create Transfer'}
+            </button>
+            <button
+              onClick={() => setShowSpendForm(v => !v)}
+              aria-expanded={showSpendForm}
+              aria-controls="spend-form"
+              className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+            >
+              {showSpendForm ? 'Hide Spend Form' : 'Process Payment'}
+            </button>
+            <button
+              onClick={loadTransfers}
+              disabled={loading}
+              aria-disabled={loading}
+              className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50"
+            >
+              Refresh
+            </button>
+          </div>
+
+          {/* Create Transfer Form */}
+          <section
+            id="create-transfer-form"
+            aria-label="Create Conditional Transfer"
+            hidden={!showCreateForm}
+            className="bg-blue-50 p-6 rounded-lg mb-6"
+          >
+            <h2 className="text-xl font-semibold mb-4">Create Conditional Transfer</h2>
+            <form onSubmit={handleCreateTransfer} noValidate className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <input
-                  type="text"
-                  placeholder="Transfer ID"
-                  value={createForm.transferId}
-                  onChange={(e) => setCreateForm({...createForm, transferId: e.target.value})}
-                  className="px-3 py-2 border rounded"
-                  required
-                />
-                <input
-                  type="text"
-                  placeholder="Beneficiary ID"
-                  value={createForm.beneficiaryId}
-                  onChange={(e) => setCreateForm({...createForm, beneficiaryId: e.target.value})}
-                  className="px-3 py-2 border rounded"
-                  required
-                />
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <input
-                  type="number"
-                  placeholder="Amount"
-                  value={createForm.amount}
-                  onChange={(e) => setCreateForm({...createForm, amount: e.target.value})}
-                  className="px-3 py-2 border rounded"
-                  required
-                />
-                <select
-                  value={createForm.token}
-                  onChange={(e) => setCreateForm({...createForm, token: e.target.value})}
-                  className="px-3 py-2 border rounded"
-                >
-                  <option value="XLM">XLM</option>
-                  <option value="USDC">USDC</option>
-                  <option value="EURT">EURT</option>
-                </select>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <input
-                  type="datetime-local"
-                  placeholder="Expiry Date"
-                  value={createForm.expiresAt}
-                  onChange={(e) => setCreateForm({...createForm, expiresAt: e.target.value})}
-                  className="px-3 py-2 border rounded"
-                  required
-                />
-                <input
-                  type="text"
-                  placeholder="Purpose"
-                  value={createForm.purpose}
-                  onChange={(e) => setCreateForm({...createForm, purpose: e.target.value})}
-                  className="px-3 py-2 border rounded"
-                  required
-                />
-              </div>
-              
-              <div className="border-t pt-4">
-                <h3 className="font-semibold mb-2">Spending Rules</h3>
-                <div className="space-y-3">
-                  {createForm.rules.map((rule, index) => (
-                    <div key={index} className="border rounded p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-medium">{rule.type.replace('_', ' ').toUpperCase()}</span>
-                        <span className="text-sm text-gray-600">
-                          {rule.type === 'category_limit' && rule.category && rule.limit && 
-                            `${rule.category}: ${rule.limit}`}
-                          {rule.type === 'time_window' && rule.startTime && rule.endTime && 
-                            `${new Date(rule.startTime).toLocaleDateString()} - ${new Date(rule.endTime).toLocaleDateString()}`}
-                          {rule.type === 'location_based' && rule.location && 
-                            `Location: ${rule.location}`}
-                        </span>
-                      </div>
-                      
-                      {rule.type === 'category_limit' && (
-                        <div className="grid grid-cols-2 gap-2">
-                          <input
-                            type="text"
-                            placeholder="Category"
-                            value={rule.category || ''}
-                            onChange={(e) => {
-                              const newRules = [...createForm.rules];
-                              newRules[index].category = e.target.value;
-                              setCreateForm({...createForm, rules: newRules});
-                            }}
-                            className="px-2 py-1 border rounded text-sm"
-                          />
-                          <input
-                            type="number"
-                            placeholder="Limit"
-                            value={rule.limit || ''}
-                            onChange={(e) => {
-                              const newRules = [...createForm.rules];
-                              newRules[index].limit = e.target.value;
-                              setCreateForm({...createForm, rules: newRules});
-                            }}
-                            className="px-2 py-1 border rounded text-sm"
-                          />
-                        </div>
-                      )}
-                      
-                      {rule.type === 'time_window' && (
-                        <div className="grid grid-cols-2 gap-2">
-                          <input
-                            type="datetime-local"
-                            value={rule.startTime || ''}
-                            onChange={(e) => {
-                              const newRules = [...createForm.rules];
-                              newRules[index].startTime = e.target.value;
-                              setCreateForm({...createForm, rules: newRules});
-                            }}
-                            className="px-2 py-1 border rounded text-sm"
-                          />
-                          <input
-                            type="datetime-local"
-                            value={rule.endTime || ''}
-                            onChange={(e) => {
-                              const newRules = [...createForm.rules];
-                              newRules[index].endTime = e.target.value;
-                              setCreateForm({...createForm, rules: newRules});
-                            }}
-                            className="px-2 py-1 border rounded text-sm"
-                          />
-                        </div>
-                      )}
-                      
-                      {rule.type === 'location_based' && (
-                        <input
-                          type="text"
-                          placeholder="Location restriction"
-                          value={rule.location || ''}
-                          onChange={(e) => {
-                            const newRules = [...createForm.rules];
-                            newRules[index].location = e.target.value;
-                            setCreateForm({...createForm, rules: newRules});
-                          }}
-                          className="w-full px-2 py-1 border rounded text-sm"
-                        />
-                      )}
-                    </div>
-                  ))}
+                <div>
+                  <label htmlFor="ct-transfer-id" className="block text-sm font-medium text-gray-700 mb-1">
+                    Transfer ID <span aria-hidden="true">*</span>
+                  </label>
+                  <input
+                    id="ct-transfer-id"
+                    type="text"
+                    value={createForm.transferId}
+                    onChange={e => setCreateForm({ ...createForm, transferId: e.target.value })}
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required aria-required="true"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="ct-beneficiary-id" className="block text-sm font-medium text-gray-700 mb-1">
+                    Beneficiary ID <span aria-hidden="true">*</span>
+                  </label>
+                  <input
+                    id="ct-beneficiary-id"
+                    type="text"
+                    value={createForm.beneficiaryId}
+                    onChange={e => setCreateForm({ ...createForm, beneficiaryId: e.target.value })}
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required aria-required="true"
+                  />
                 </div>
               </div>
-              
-              <div className="flex space-x-4">
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="ct-amount" className="block text-sm font-medium text-gray-700 mb-1">
+                    Amount <span aria-hidden="true">*</span>
+                  </label>
+                  <input
+                    id="ct-amount"
+                    type="number"
+                    value={createForm.amount}
+                    onChange={e => setCreateForm({ ...createForm, amount: e.target.value })}
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required aria-required="true" min="0"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="ct-token" className="block text-sm font-medium text-gray-700 mb-1">
+                    Token <span aria-hidden="true">*</span>
+                  </label>
+                  <select
+                    id="ct-token"
+                    value={createForm.token}
+                    onChange={e => setCreateForm({ ...createForm, token: e.target.value })}
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required aria-required="true"
+                  >
+                    <option value="XLM">XLM</option>
+                    <option value="USDC">USDC</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="ct-expires" className="block text-sm font-medium text-gray-700 mb-1">
+                    Expiry Date &amp; Time <span aria-hidden="true">*</span>
+                  </label>
+                  <input
+                    id="ct-expires"
+                    type="datetime-local"
+                    value={createForm.expiresAt}
+                    onChange={e => setCreateForm({ ...createForm, expiresAt: e.target.value })}
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required aria-required="true"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="ct-purpose" className="block text-sm font-medium text-gray-700 mb-1">
+                    Purpose <span aria-hidden="true">*</span>
+                  </label>
+                  <input
+                    id="ct-purpose"
+                    type="text"
+                    value={createForm.purpose}
+                    onChange={e => setCreateForm({ ...createForm, purpose: e.target.value })}
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required aria-required="true"
+                  />
+                </div>
+              </div>
+
+              <fieldset>
+                <legend className="text-sm font-medium text-gray-700 mb-2">Spending Rules</legend>
+                <ul className="space-y-3">
+                  {createForm.rules.map((rule, index) => (
+                    <li key={index} className="bg-white p-3 rounded border">
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label htmlFor={`rule-type-${index}`} className="block text-xs font-medium text-gray-600 mb-1">Rule Type</label>
+                          <select
+                            id={`rule-type-${index}`}
+                            value={rule.type}
+                            onChange={e => {
+                              const rules = [...createForm.rules];
+                              rules[index] = { ...rules[index], type: e.target.value };
+                              setCreateForm({ ...createForm, rules });
+                            }}
+                            className="w-full px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="category_limit">Category Limit</option>
+                            <option value="time_window">Time Window</option>
+                            <option value="location_based">Location Based</option>
+                          </select>
+                        </div>
+                        {rule.type === 'category_limit' && (
+                          <>
+                            <div>
+                              <label htmlFor={`rule-category-${index}`} className="block text-xs font-medium text-gray-600 mb-1">Category</label>
+                              <input
+                                id={`rule-category-${index}`}
+                                type="text"
+                                value={rule.category}
+                                onChange={e => {
+                                  const rules = [...createForm.rules];
+                                  rules[index] = { ...rules[index], category: e.target.value };
+                                  setCreateForm({ ...createForm, rules });
+                                }}
+                                className="w-full px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            </div>
+                            <div>
+                              <label htmlFor={`rule-limit-${index}`} className="block text-xs font-medium text-gray-600 mb-1">Limit</label>
+                              <input
+                                id={`rule-limit-${index}`}
+                                type="number"
+                                value={rule.limit}
+                                onChange={e => {
+                                  const rules = [...createForm.rules];
+                                  rules[index] = { ...rules[index], limit: e.target.value };
+                                  setCreateForm({ ...createForm, rules });
+                                }}
+                                className="w-full px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                min="0"
+                              />
+                            </div>
+                          </>
+                        )}
+                        {rule.type === 'time_window' && (
+                          <>
+                            <div>
+                              <label htmlFor={`rule-start-${index}`} className="block text-xs font-medium text-gray-600 mb-1">Start Time</label>
+                              <input
+                                id={`rule-start-${index}`}
+                                type="datetime-local"
+                                value={rule.startTime}
+                                onChange={e => {
+                                  const rules = [...createForm.rules];
+                                  rules[index] = { ...rules[index], startTime: e.target.value };
+                                  setCreateForm({ ...createForm, rules });
+                                }}
+                                className="w-full px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            </div>
+                            <div>
+                              <label htmlFor={`rule-end-${index}`} className="block text-xs font-medium text-gray-600 mb-1">End Time</label>
+                              <input
+                                id={`rule-end-${index}`}
+                                type="datetime-local"
+                                value={rule.endTime}
+                                onChange={e => {
+                                  const rules = [...createForm.rules];
+                                  rules[index] = { ...rules[index], endTime: e.target.value };
+                                  setCreateForm({ ...createForm, rules });
+                                }}
+                                className="w-full px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            </div>
+                          </>
+                        )}
+                        {rule.type === 'location_based' && (
+                          <div className="col-span-2">
+                            <label htmlFor={`rule-location-${index}`} className="block text-xs font-medium text-gray-600 mb-1">Location</label>
+                            <input
+                              id={`rule-location-${index}`}
+                              type="text"
+                              value={rule.location}
+                              onChange={e => {
+                                const rules = [...createForm.rules];
+                                rules[index] = { ...rules[index], location: e.target.value };
+                                setCreateForm({ ...createForm, rules });
+                              }}
+                              className="w-full px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </fieldset>
+
+              <div className="flex gap-4">
                 <button
                   type="submit"
                   disabled={loading}
-                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                  aria-disabled={loading}
+                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50"
                 >
-                  {loading ? 'Creating...' : 'Create Transfer'}
+                  {loading ? 'Creating…' : 'Create Transfer'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowCreateForm(false)}
-                  className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400"
+                  className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
                 >
                   Cancel
                 </button>
               </div>
             </form>
-          </div>
-        )}
+          </section>
 
-        {/* Spend Form */}
-        {showSpendForm && (
-          <div className="bg-green-50 p-6 rounded-lg mb-6">
-            <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">Process Payment</h2>
-            <form onSubmit={handleSpend} className="space-y-4">
+          {/* Spend Form */}
+          <section
+            id="spend-form"
+            aria-label="Process Payment"
+            hidden={!showSpendForm}
+            className="bg-green-50 p-6 rounded-lg mb-6"
+          >
+            <h2 className="text-xl font-semibold mb-4">Process Payment</h2>
+            <form onSubmit={handleSpend} noValidate className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
-                <input
-                  type="text"
-                  placeholder="Transfer ID"
-                  value={spendForm.transferId}
-                  onChange={(e) => setSpendForm({...spendForm, transferId: e.target.value})}
-                  className="px-3 py-2 border rounded"
-                  required
-                />
-                <input
-                  type="password"
-                  placeholder="Beneficiary Key"
-                  value={spendForm.beneficiaryKey}
-                  onChange={(e) => setSpendForm({...spendForm, beneficiaryKey: e.target.value})}
-                  className="px-3 py-2 border rounded"
-                  required
-                />
+                <div>
+                  <label htmlFor="spend-transfer-id" className="block text-sm font-medium text-gray-700 mb-1">
+                    Transfer ID <span aria-hidden="true">*</span>
+                  </label>
+                  <input
+                    id="spend-transfer-id"
+                    type="text"
+                    value={spendForm.transferId}
+                    onChange={e => setSpendForm({ ...spendForm, transferId: e.target.value })}
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500"
+                    required aria-required="true"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="spend-beneficiary-key" className="block text-sm font-medium text-gray-700 mb-1">
+                    Beneficiary Key <span aria-hidden="true">*</span>
+                  </label>
+                  <input
+                    id="spend-beneficiary-key"
+                    type="password"
+                    value={spendForm.beneficiaryKey}
+                    onChange={e => setSpendForm({ ...spendForm, beneficiaryKey: e.target.value })}
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500"
+                    required aria-required="true"
+                    autoComplete="current-password"
+                  />
+                </div>
               </div>
-              
               <div className="grid grid-cols-2 gap-4">
-                <input
-                  type="text"
-                  placeholder="Merchant ID"
-                  value={spendForm.merchantId}
-                  onChange={(e) => setSpendForm({...spendForm, merchantId: e.target.value})}
-                  className="px-3 py-2 border rounded"
-                  required
-                />
-                <input
-                  type="number"
-                  placeholder="Amount"
-                  value={spendForm.amount}
-                  onChange={(e) => setSpendForm({...spendForm, amount: e.target.value})}
-                  className="px-3 py-2 border rounded"
-                  required
-                />
+                <div>
+                  <label htmlFor="spend-merchant-id" className="block text-sm font-medium text-gray-700 mb-1">
+                    Merchant ID <span aria-hidden="true">*</span>
+                  </label>
+                  <input
+                    id="spend-merchant-id"
+                    type="text"
+                    value={spendForm.merchantId}
+                    onChange={e => setSpendForm({ ...spendForm, merchantId: e.target.value })}
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500"
+                    required aria-required="true"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="spend-amount" className="block text-sm font-medium text-gray-700 mb-1">
+                    Amount <span aria-hidden="true">*</span>
+                  </label>
+                  <input
+                    id="spend-amount"
+                    type="number"
+                    value={spendForm.amount}
+                    onChange={e => setSpendForm({ ...spendForm, amount: e.target.value })}
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500"
+                    required aria-required="true" min="0"
+                  />
+                </div>
               </div>
-              
               <div className="grid grid-cols-2 gap-4">
-                <select
-                  value={spendForm.category}
-                  onChange={(e) => setSpendForm({...spendForm, category: e.target.value})}
-                  className="px-3 py-2 border rounded"
-                >
-                  <option value="food">Food</option>
-                  <option value="medical">Medical</option>
-                  <option value="shelter">Shelter</option>
-                  <option value="clothing">Clothing</option>
-                  <option value="transport">Transport</option>
-                  <option value="other">Other</option>
-                </select>
-                <input
-                  type="text"
-                  placeholder="Location"
-                  value={spendForm.location}
-                  onChange={(e) => setSpendForm({...spendForm, location: e.target.value})}
-                  className="px-3 py-2 border rounded"
-                />
+                <div>
+                  <label htmlFor="spend-category" className="block text-sm font-medium text-gray-700 mb-1">
+                    Category <span aria-hidden="true">*</span>
+                  </label>
+                  <select
+                    id="spend-category"
+                    value={spendForm.category}
+                    onChange={e => setSpendForm({ ...spendForm, category: e.target.value })}
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500"
+                    required aria-required="true"
+                  >
+                    <option value="food">Food</option>
+                    <option value="medical">Medical</option>
+                    <option value="shelter">Shelter</option>
+                    <option value="transport">Transport</option>
+                    <option value="water">Water</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="spend-location" className="block text-sm font-medium text-gray-700 mb-1">
+                    Location
+                  </label>
+                  <input
+                    id="spend-location"
+                    type="text"
+                    value={spendForm.location}
+                    onChange={e => setSpendForm({ ...spendForm, location: e.target.value })}
+                    className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
               </div>
-              
-              <div className="flex space-x-4">
+              <div className="flex gap-4">
                 <button
                   type="submit"
                   disabled={loading}
-                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                  aria-disabled={loading}
+                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50"
                 >
-                  {loading ? 'Processing...' : 'Process Payment'}
+                  {loading ? 'Processing…' : 'Process Payment'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowSpendForm(false)}
-                  className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400"
+                  className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
                 >
                   Cancel
                 </button>
               </div>
             </form>
-          </div>
-        )}
+          </section>
 
-        {/* Transfers List */}
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Active Transfers</h2>
-          
-          {loading ? (
-            <div className="text-center py-4">Loading...</div>
-          ) : transfers.length === 0 ? (
-            <div className="text-gray-500 text-center py-4">No active transfers found</div>
-          ) : (
-            <div className="grid gap-4">
-              {transfers.map((transfer) => (
-                <div key={transfer.id} className="border dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow bg-white dark:bg-gray-700">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-semibold text-lg">{transfer.id}</h3>
-                      <p className="text-gray-600">{transfer.purpose}</p>
-                      <div className="mt-2 space-y-1 text-sm">
-                        <p><strong>Beneficiary:</strong> {transfer.beneficiaryId}</p>
-                        <p><strong>Token:</strong> {transfer.token}</p>
-                        <p><strong>Created:</strong> {formatDate(transfer.createdAt)}</p>
-                        <p><strong>Expires:</strong> {formatDate(transfer.expiresAt)}</p>
-                      </div>
-                      
-                      <div className="mt-3">
-                        <h4 className="font-medium text-sm mb-1">Spending Rules:</h4>
-                        <div className="flex flex-wrap gap-2">
-                          {transfer.spendingRules.map((rule, index) => (
-                            <span key={index} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs">
-                              {rule.ruleType}: {rule.limit}
-                            </span>
-                          ))}
+          {/* Transfers List */}
+          <section aria-label="Conditional Transfers">
+            <h2 className="text-xl font-semibold mb-4">Conditional Transfers</h2>
+
+            {loading && (
+              <div role="status" aria-live="polite" className="text-center py-4">
+                <span className="sr-only">Loading transfers, please wait.</span>
+                <span aria-hidden="true">Loading…</span>
+              </div>
+            )}
+
+            {!loading && transfers.length === 0 && (
+              <p className="text-gray-500 text-center py-4">No transfers found.</p>
+            )}
+
+            {!loading && transfers.length > 0 && (
+              <ul className="grid gap-4" aria-label="Transfers list">
+                {transfers.map(transfer => {
+                  const status = getTransferStatus(transfer);
+                  const utilizationRate = getUtilizationRate(transfer);
+                  const detailsRef = React.createRef<HTMLButtonElement>();
+                  return (
+                    <li key={transfer.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-semibold text-lg">{transfer.id}</h3>
+                          <dl className="mt-2 space-y-1 text-sm">
+                            <div><dt className="inline font-bold">Beneficiary: </dt><dd className="inline">{transfer.beneficiaryId}</dd></div>
+                            <div><dt className="inline font-bold">Purpose: </dt><dd className="inline">{transfer.purpose}</dd></div>
+                            <div><dt className="inline font-bold">Expires: </dt><dd className="inline">{formatDate(transfer.expiresAt)}</dd></div>
+                          </dl>
                         </div>
-                      </div>
-                    </div>
-                    
-                    <div className="text-right">
-                      <div className={`font-semibold ${getStatusColor(transfer)}`}>
-                        {getStatusText(transfer)}
-                      </div>
-                      
-                      <div className="mt-2 space-y-1 text-sm">
-                        <p><strong>Total:</strong> {transfer.amount}</p>
-                        <p><strong>Spent:</strong> {transfer.spentAmount}</p>
-                        <p><strong>Remaining:</strong> {transfer.remainingAmount}</p>
-                        <p><strong>Utilization:</strong> {getUtilizationRate(transfer)}%</p>
-                      </div>
-                      
-                      <div className="mt-4 space-x-2">
-                        <button
-                          onClick={() => setSelectedTransfer(transfer)}
-                          className="bg-blue-500 text-white px-3 py-1 text-sm rounded hover:bg-blue-600"
-                        >
-                          Details
-                        </button>
-                        <button
-                          onClick={() => transferClient.generateTransferQRCode(transfer.id, transfer)}
-                          className="bg-green-500 text-white px-3 py-1 text-sm rounded hover:bg-green-600"
-                        >
-                          QR Code
-                        </button>
-                        {Date.now() > transfer.expiresAt && (
-                          <button
-                            onClick={() => handleRecallFunds(transfer.id)}
-                            className="bg-red-500 text-white px-3 py-1 text-sm rounded hover:bg-red-600"
+                        <div className="text-right">
+                          <p className={`font-semibold ${status.className}`} aria-label={`Status: ${status.label}`}>
+                            {status.label}
+                          </p>
+                          <dl className="mt-2 space-y-1 text-sm">
+                            <div><dt className="inline font-bold">Amount: </dt><dd className="inline">{transfer.amount} {transfer.token}</dd></div>
+                            <div><dt className="inline font-bold">Spent: </dt><dd className="inline">{transfer.spentAmount} {transfer.token}</dd></div>
+                            <div>
+                              <dt className="inline font-bold">Utilization: </dt>
+                              <dd className="inline">
+                                <span aria-label={`${utilizationRate}% utilized`}>{utilizationRate}%</span>
+                              </dd>
+                            </div>
+                          </dl>
+                          <div
+                            className="mt-2 w-full bg-gray-200 rounded-full h-2"
+                            role="progressbar"
+                            aria-valuenow={utilizationRate}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-label={`Transfer utilization: ${utilizationRate}%`}
                           >
-                            Recall
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleExtendExpiry(transfer.id)}
-                          className="bg-yellow-500 text-white px-3 py-1 text-sm rounded hover:bg-yellow-600"
-                        >
-                          Extend
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Transfer Details Modal */}
-        {selectedTransfer && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-2xl w-full max-h-screen overflow-y-auto">
-              <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">{selectedTransfer.id}</h2>
-              <div className="space-y-4">
-                <div>
-                  <h3 className="font-semibold">Transfer Information</h3>
-                  <div className="grid grid-cols-2 gap-4 mt-2">
-                    <p><strong>Beneficiary:</strong> {selectedTransfer.beneficiaryId}</p>
-                    <p><strong>Status:</strong> {getStatusText(selectedTransfer)}</p>
-                    <p><strong>Token:</strong> {selectedTransfer.token}</p>
-                    <p><strong>Purpose:</strong> {selectedTransfer.purpose}</p>
-                    <p><strong>Created:</strong> {formatDate(selectedTransfer.createdAt)}</p>
-                    <p><strong>Expires:</strong> {formatDate(selectedTransfer.expiresAt)}</p>
-                  </div>
-                </div>
-                
-                <div>
-                  <h3 className="font-semibold">Financial Summary</h3>
-                  <div className="grid grid-cols-2 gap-4 mt-2">
-                    <p><strong>Total Amount:</strong> {selectedTransfer.amount}</p>
-                    <p><strong>Spent Amount:</strong> {selectedTransfer.spentAmount}</p>
-                    <p><strong>Remaining:</strong> {selectedTransfer.remainingAmount}</p>
-                    <p><strong>Utilization Rate:</strong> {getUtilizationRate(selectedTransfer)}%</p>
-                  </div>
-                </div>
-                
-                <div>
-                  <h3 className="font-semibold">Spending Rules</h3>
-                  <div className="mt-2 space-y-2">
-                    {selectedTransfer.spendingRules.map((rule, index) => (
-                      <div key={index} className="bg-gray-50 p-3 rounded">
-                        <p><strong>Type:</strong> {rule.ruleType}</p>
-                        <p><strong>Limit:</strong> {rule.limit}</p>
-                        <p><strong>Current Usage:</strong> {rule.currentUsage}</p>
-                        <div className="mt-1">
-                          <strong>Parameters:</strong>
-                          <ul className="ml-4 text-sm">
-                            {Object.entries(rule.parameters).map(([key, value]) => (
-                              <li key={key}>{key}: {value}</li>
-                            ))}
-                          </ul>
+                            <div
+                              className="bg-blue-600 h-2 rounded-full"
+                              style={{ width: `${utilizationRate}%` }}
+                            />
+                          </div>
+                          <div className="mt-4 flex gap-2 justify-end">
+                            <button
+                              ref={detailsRef}
+                              onClick={() => {
+                                openModalTriggerRef.current = detailsRef.current;
+                                setSelectedTransfer(transfer);
+                              }}
+                              className="bg-blue-500 text-white px-3 py-1 text-sm rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-1"
+                              aria-label={`View details for transfer ${transfer.id}`}
+                            >
+                              Details
+                            </button>
+                            <button
+                              onClick={() => handleRecallFunds(transfer.id)}
+                              disabled={loading}
+                              aria-disabled={loading}
+                              className="bg-red-500 text-white px-3 py-1 text-sm rounded hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-offset-1 disabled:opacity-50"
+                              aria-label={`Recall funds for transfer ${transfer.id}`}
+                            >
+                              Recall
+                            </button>
+                          </div>
                         </div>
                       </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </div>
+      </main>
+
+      {/* Transfer Details Modal */}
+      {selectedTransfer && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-40"
+          role="presentation"
+          onClick={e => { if (e.target === e.currentTarget) closeModal(); }}
+        >
+          <div
+            ref={modalRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="transfer-modal-title"
+            className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-screen overflow-y-auto"
+          >
+            <h2 id="transfer-modal-title" className="text-2xl font-bold mb-4">Transfer: {selectedTransfer.id}</h2>
+
+            <div className="space-y-4">
+              <section aria-label="Transfer Details">
+                <h3 className="font-semibold">Transfer Details</h3>
+                <dl className="grid grid-cols-2 gap-4 mt-2 text-sm">
+                  <div><dt className="font-bold">ID:</dt><dd>{selectedTransfer.id}</dd></div>
+                  <div><dt className="font-bold">Status:</dt><dd>{getTransferStatus(selectedTransfer).label}</dd></div>
+                  <div><dt className="font-bold">Amount:</dt><dd>{selectedTransfer.amount} {selectedTransfer.token}</dd></div>
+                  <div><dt className="font-bold">Spent:</dt><dd>{selectedTransfer.spentAmount} {selectedTransfer.token}</dd></div>
+                  <div><dt className="font-bold">Beneficiary:</dt><dd>{selectedTransfer.beneficiaryId}</dd></div>
+                  <div><dt className="font-bold">Expires:</dt><dd>{formatDate(selectedTransfer.expiresAt)}</dd></div>
+                </dl>
+              </section>
+
+              <section aria-label="Purpose">
+                <h3 className="font-semibold">Purpose</h3>
+                <p className="text-gray-600 mt-1">{selectedTransfer.purpose}</p>
+              </section>
+
+              <section aria-label="Spending Rules">
+                <h3 className="font-semibold mb-2">Spending Rules</h3>
+                {selectedTransfer.spendingRules.length === 0 ? (
+                  <p className="text-gray-500 text-sm">No spending rules defined.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {selectedTransfer.spendingRules.map((rule, index) => (
+                      <li key={index} className="bg-gray-50 p-2 rounded text-sm">
+                        <dl className="space-y-1">
+                          <div><dt className="inline font-bold">Type: </dt><dd className="inline">{rule.ruleType}</dd></div>
+                          {rule.category && <div><dt className="inline font-bold">Category: </dt><dd className="inline">{rule.category}</dd></div>}
+                          {rule.maxAmount && <div><dt className="inline font-bold">Max Amount: </dt><dd className="inline">{rule.maxAmount}</dd></div>}
+                        </dl>
+                      </li>
                     ))}
-                  </div>
-                </div>
-                
-                <div>
-                  <h3 className="font-semibold">Actions</h3>
-                  <div className="mt-2 space-x-2">
-                    <button
-                      onClick={() => transferClient.getTransactions(selectedTransfer.id)}
-                      className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-                    >
-                      View Transactions
-                    </button>
-                    <button
-                      onClick={() => transferClient.getTransferStatistics(selectedTransfer.id)}
-                      className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
-                    >
-                      Get Statistics
-                    </button>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="mt-6 flex justify-end">
-                <button
-                  onClick={() => setSelectedTransfer(null)}
-                  className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400"
+                  </ul>
+                )}
+              </section>
+
+              <section aria-label="Extend Expiry">
+                <h3 className="font-semibold mb-2">Extend Expiry</h3>
+                <form
+                  onSubmit={e => {
+                    e.preventDefault();
+                    const input = (e.currentTarget.elements.namedItem('new-expiry') as HTMLInputElement).value;
+                    if (input) handleExtendExpiry(selectedTransfer.id, input);
+                  }}
+                  className="flex gap-2"
                 >
-                  Close
-                </button>
-              </div>
+                  <div className="flex-1">
+                    <label htmlFor="new-expiry" className="block text-sm font-medium text-gray-700 mb-1">New Expiry Date &amp; Time</label>
+                    <input
+                      id="new-expiry"
+                      name="new-expiry"
+                      type="datetime-local"
+                      className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="submit"
+                      disabled={loading}
+                      aria-disabled={loading}
+                      className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 disabled:opacity-50"
+                    >
+                      Extend
+                    </button>
+                  </div>
+                </form>
+              </section>
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={closeModal}
+                className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2"
+              >
+                Close
+              </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
