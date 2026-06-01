@@ -380,3 +380,47 @@ export interface PaperBackupCode {
   createdAt: number;
   instructions: string;
 }
+
+// ─── Pagination ───────────────────────────────────────────────────────────────
+
+export type PaginationCursor = string;
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  nextCursor: PaginationCursor | null;
+  hasMore: boolean;
+}
+
+export interface PaginationOptions {
+  cursor?: PaginationCursor;
+  /** 1–100, default 20 */
+  limit?: number;
+}
+
+// ─── Search / Filter ──────────────────────────────────────────────────────────
+
+/** Options for searching and filtering beneficiaries. */
+export interface BeneficiarySearchOptions extends PaginationOptions {
+  /** Substring match on id or name. */
+  search?: string;
+  /** Exact match on location field. */
+  locationFilter?: string;
+  /** When true, only active beneficiaries are returned (default true). */
+  activeOnly?: boolean;
+  /** Inclusive lower bound on trustScore (0 = no filter). */
+  minTrustScore?: number;
+}
+
+/** Options for searching and filtering emergency funds. */
+export interface FundSearchOptions {
+  /** Substring match on id or name. */
+  search?: string;
+  /** Exact match on disasterType. */
+  disasterType?: string;
+  /** When true, only active funds are returned (default false). */
+  activeOnly?: boolean;
+  /** Inclusive lower bound on createdAt (ms epoch, 0 = no filter). */
+  createdAfter?: number;
+  /** Inclusive upper bound on createdAt (ms epoch, 0 = no filter). */
+  createdBefore?: number;
+}

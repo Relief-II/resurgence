@@ -181,6 +181,75 @@ impl AidRegistry {
         active_funds
     }
 
+    /// Search and filter emergency funds.
+    ///
+    /// Parameters
+    /// ----------
+    /// - `search`           – substring match on `id` and `name` ("" = no filter).
+    /// - `disaster_type`    – exact match on `disaster_type` ("" = no filter).
+    /// - `active_only`      – when `true` only active funds are returned.
+    /// - `created_after`    – inclusive lower bound on `created_at` (0 = no filter).
+    /// - `created_before`   – inclusive upper bound on `created_at` (0 = no filter).
+    ///
+    /// Results are sorted by `created_at DESC` (newest first) for stable ordering.
+    pub fn search_funds(
+        env: Env,
+        search: String,
+        disaster_type: String,
+        active_only: bool,
+        created_after: u64,
+        created_before: u64,
+    ) -> Vec<EmergencyFund> {
+        let empty_str = String::from_str(&env, "");
+        let fund_key = Symbol::new(&env, "fund");
+        let funds: Map<String, EmergencyFund> = env.storage().instance()
+            .get(&fund_key)
+            .unwrap_or(Map::new(&env));
+
+        let mut result: Vec<EmergencyFund> = Vec::new(&env);
+        for (_, fund) in funds.iter() {
+            if active_only && !fund.is_active {
+                continue;
+            }
+            if disaster_type != empty_str && fund.disaster_type != disaster_type {
+                continue;
+            }
+            if created_after > 0 && fund.created_at < created_after {
+                continue;
+            }
+            if created_before > 0 && fund.created_at > created_before {
+                continue;
+            }
+            if search != empty_str {
+                let id_match = fund.id.to_string().contains(search.to_string().as_str());
+                let name_match = fund.name.to_string().contains(search.to_string().as_str());
+                if !id_match && !name_match {
+                    continue;
+                }
+            }
+            result.push_back(fund);
+        }
+
+        // Sort by created_at DESC (insertion sort)
+        let len = result.len();
+        for i in 1..len {
+            let mut j = i;
+            while j > 0 {
+                let a = result.get(j - 1).unwrap();
+                let b = result.get(j).unwrap();
+                if a.created_at < b.created_at {
+                    result.set(j - 1, b.clone());
+                    result.set(j, a.clone());
+                    j -= 1;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        result
+    }
+
     /// Submit disbursement request with multi-sig approval
     pub fn submit_disbursement(
         env: Env,
