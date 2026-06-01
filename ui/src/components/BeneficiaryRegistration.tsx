@@ -9,11 +9,12 @@ interface BeneficiaryRegistrationProps {
 
 export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = ({
   beneficiaryClient,
-  config,
-  registrarKey
 }) => {
   const [beneficiaries, setBeneficiaries] = useState<BeneficiaryProfile[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<PaginationCursor | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [showRegistrationForm, setShowRegistrationForm] = useState(false);
   const [showVerificationForm, setShowVerificationForm] = useState(false);
   const [selectedBeneficiary, setSelectedBeneficiary] = useState<BeneficiaryProfile | null>(null);
@@ -67,7 +68,7 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
     openModalTriggerRef.current?.focus();
   };
 
-  const loadBeneficiaries = async () => {
+  const loadBeneficiaries = useCallback(async () => {
     try {
       setLoading(true);
       const list = await beneficiaryClient.listBeneficiariesByDisaster('sample_disaster_001');
@@ -77,6 +78,24 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
       setErrorMessage('Failed to load beneficiaries.');
     } finally {
       setLoading(false);
+    }
+  }, [beneficiaryClient]);
+
+  const loadMoreBeneficiaries = async () => {
+    if (!hasMore || loadingMore || !nextCursor) return;
+    try {
+      setLoadingMore(true);
+      const page = await beneficiaryClient.listBeneficiariesPaginated('sample_disaster_001', {
+        cursor: nextCursor,
+        limit: PAGE_SIZE,
+      });
+      setBeneficiaries(prev => [...prev, ...page.items]);
+      setNextCursor(page.nextCursor);
+      setHasMore(page.hasMore);
+    } catch (error) {
+      console.error('Failed to load more beneficiaries:', error);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
