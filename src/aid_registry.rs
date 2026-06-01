@@ -56,10 +56,7 @@ pub struct EmergencyFund {
     pub current_status: String, // "active", "triggered", "released", "recalled", "expired", "archived"
     pub fund_allocation: Vec<FundAllocation>,
     pub reserved_for_recall: U256,
-    // Archive fields — all None when not archived
-    pub archived_at: Option<u64>,
-    pub archive_reason: Option<String>,
-    pub pre_archive_status: Option<String>, // status before archiving, used for restore
+    pub metadata: Map<String, String>,
 }
 
 #[derive(Clone)]
@@ -137,6 +134,7 @@ impl AidRegistry {
         expires_at: u64,
         release_triggers: Vec<Address>,
         required_signatures: u32,
+        metadata: Map<String, String>,
     ) {
         // Verify admin authorization
         admin.require_auth();
@@ -161,9 +159,7 @@ impl AidRegistry {
             current_status: String::from_str(&env, FUND_STATUS_ACTIVE),
             fund_allocation: Vec::new(&env),
             reserved_for_recall: U256::from_u64(0),
-            archived_at: None,
-            archive_reason: None,
-            pre_archive_status: None,
+            metadata,
         };
         
         // Store fund
@@ -1081,120 +1077,36 @@ impl AidRegistry {
         env.storage().instance().set(&triggers_key, &triggers);
     }
 
-    /// Archive a fund. Archived funds are hidden from default views but all
-    /// historical data (disbursements, allocations, triggers) is preserved.
-    /// Archived funds cannot participate in active operations.
-    ///
-    /// Any non-archived fund status may be archived.
-    /// Requires admin authorization.
-    pub fn archive_fund(
+    /// Update metadata for a fund
+    pub fn update_metadata(
         env: Env,
         admin: Address,
         fund_id: String,
-        reason: String,
+        metadata: Map<String, String>,
     ) {
         admin.require_auth();
-
+        
         let fund_key = Symbol::new(&env, "fund");
         let mut funds: Map<String, EmergencyFund> = env.storage().instance()
             .get(&fund_key)
             .unwrap_or(Map::new(&env));
-
+        
         let mut fund = funds.get(fund_id.clone()).unwrap_or_panic_with(&env);
-
-        if fund.current_status == String::from_str(&env, FUND_STATUS_ARCHIVED) {
-            panic_with_error!(&env, "Fund is already archived");
-        }
-
-        // Preserve the current status so restore can return to it
-        fund.pre_archive_status = Some(fund.current_status.clone());
-        fund.archived_at = Some(env.ledger().timestamp());
-        fund.archive_reason = Some(reason);
-        fund.is_active = false;
-        fund.current_status = String::from_str(&env, FUND_STATUS_ARCHIVED);
-
-        funds.set(fund_id.clone(), fund);
+        fund.metadata = metadata;
+        
+        funds.set(fund_id, fund);
         env.storage().instance().set(&fund_key, &funds);
-
-        // Append to audit log
-        Self::append_audit_log(&env, &fund_id, String::from_str(&env, "archived"), &admin);
     }
 
-    /// Restore an archived fund back to its pre-archive status.
-    /// Requires admin authorization.
-    pub fn restore_fund(
-        env: Env,
-        admin: Address,
-        fund_id: String,
-    ) {
-        admin.require_auth();
-
-        let fund_key = Symbol::new(&env, "fund");
-        let mut funds: Map<String, EmergencyFund> = env.storage().instance()
-            .get(&fund_key)
-            .unwrap_or(Map::new(&env));
-
-        let mut fund = funds.get(fund_id.clone()).unwrap_or_panic_with(&env);
-
-        if fund.current_status != String::from_str(&env, FUND_STATUS_ARCHIVED) {
-            panic_with_error!(&env, "Fund is not archived");
-        }
-
-        // Restore to the status the fund held before archiving
-        let restored_status = fund.pre_archive_status
-            .clone()
-            .unwrap_or(String::from_str(&env, FUND_STATUS_ACTIVE));
-
-        // A fund is only set back to is_active=true if the restored status
-        // is one that implies active participation.
-        let is_active_status = restored_status == String::from_str(&env, FUND_STATUS_ACTIVE)
-            || restored_status == String::from_str(&env, FUND_STATUS_TRIGGERED);
-
-        fund.current_status = restored_status;
-        fund.is_active = is_active_status;
-        fund.archived_at = None;
-        fund.archive_reason = None;
-        fund.pre_archive_status = None;
-
-        funds.set(fund_id.clone(), fund);
-        env.storage().instance().set(&fund_key, &funds);
-
-        Self::append_audit_log(&env, &fund_id, String::from_str(&env, "restored"), &admin);
-    }
-
-    /// List all archived funds (for admin/audit views).
-    pub fn list_archived_funds(env: Env) -> Vec<EmergencyFund> {
+    /// Get metadata for a fund
+    pub fn get_metadata(env: Env, fund_id: String) -> Map<String, String> {
         let fund_key = Symbol::new(&env, "fund");
         let funds: Map<String, EmergencyFund> = env.storage().instance()
             .get(&fund_key)
             .unwrap_or(Map::new(&env));
-
-        let mut archived = Vec::new(&env);
-        for (_, fund) in funds.iter() {
-            if fund.current_status == String::from_str(&env, FUND_STATUS_ARCHIVED) {
-                archived.push_back(fund);
-            }
-        }
-        archived
-    }
-
-    /// Return the audit log entries for a fund.
-    /// Each entry is (action, actor_address, timestamp).
-    pub fn get_fund_audit_log(env: Env, fund_id: String) -> Vec<(String, Address, u64)> {
-        let log_key = Symbol::new(&env, &format!("audit_{}", fund_id));
-        env.storage().instance()
-            .get(&log_key)
-            .unwrap_or(Vec::new(&env))
-    }
-
-    /// Internal helper — append one entry to a fund's audit log.
-    fn append_audit_log(env: &Env, fund_id: &String, action: String, actor: &Address) {
-        let log_key = Symbol::new(env, &format!("audit_{}", fund_id));
-        let mut log: Vec<(String, Address, u64)> = env.storage().instance()
-            .get(&log_key)
-            .unwrap_or(Vec::new(env));
-        log.push_back((action, actor.clone(), env.ledger().timestamp()));
-        env.storage().instance().set(&log_key, &log);
+        
+        let fund = funds.get(fund_id).unwrap_or_panic_with(&env);
+        fund.metadata
     }
 }
 
