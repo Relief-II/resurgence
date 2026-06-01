@@ -12,8 +12,6 @@ interface BeneficiaryRegistrationProps {
 
 export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = ({
   beneficiaryClient,
-  config,
-  registrarKey
 }) => {
   const [beneficiaries, setBeneficiaries] = useState<BeneficiaryProfile[]>([]);
   const [loading, setLoading] = useState(false);
@@ -197,55 +195,38 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
       } else {
         alert('Failed to restore access. Check recovery code.');
       }
-    } catch (error) {
-      console.error('Failed to restore access:', error);
-      alert('Failed to restore access');
-    }
-  };
+    },
+    [beneficiaryClient]
+  );
 
-  const handleUSSDSession = (phoneNumber: string) => {
-    const session = beneficiaryClient.createUSSDSession(phoneNumber);
-    setUssdSession({
-      sessionId: session.sessionId,
-      phoneNumber,
-      currentStep: 'welcome',
-      response: session.welcomeMessage
-    });
-  };
+  // Reset pagination and reload whenever filters change (debounced 300 ms)
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      fetchPage({ limit: PAGE_SIZE, search, locationFilter, activeOnly, minTrustScore }, false);
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [search, locationFilter, activeOnly, minTrustScore, fetchPage]);
 
-  const handleUSSDInput = (input: string) => {
-    const result = beneficiaryClient.processUSSDInput(
-      ussdSession.sessionId,
-      input,
-      ussdSession.currentStep
+  const loadMore = () => {
+    if (!hasMore || loadingMore || !nextCursor) return;
+    fetchPage(
+      { cursor: nextCursor, limit: PAGE_SIZE, search, locationFilter, activeOnly, minTrustScore },
+      true
     );
-    
-    setUssdSession({
-      ...ussdSession,
-      currentStep: result.nextStep,
-      response: result.response
-    });
-
-    if (result.completed) {
-      alert('USSD registration completed!');
-      setUssdSession({
-        sessionId: '',
-        phoneNumber: '',
-        currentStep: 'welcome',
-        response: ''
-      });
-    }
   };
 
-  const getTrustScoreColor = (score: number) => {
-    if (score >= 80) return 'text-green-600';
-    if (score >= 60) return 'text-yellow-600';
-    return 'text-red-600';
+  const clearFilters = () => {
+    setSearch('');
+    setLocationFilter('');
+    setActiveOnly(true);
+    setMinTrustScore(0);
   };
 
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleDateString();
-  };
+  const getTrustColor = (score: number) =>
+    score >= 80 ? 'text-green-600' : score >= 60 ? 'text-yellow-600' : 'text-red-600';
 
   return (
     <div className="max-w-6xl mx-auto p-6 bg-gray-100 dark:bg-gray-900 min-h-screen">
@@ -477,34 +458,41 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
               </div>
               
               <input
-                type="text"
-                placeholder="Enter your choice"
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    handleUSSDInput((e.target as HTMLInputElement).value);
-                    (e.target as HTMLInputElement).value = '';
-                  }
-                }}
-                className="w-full px-3 py-2 border rounded"
+                type="checkbox"
+                aria-label="Active only"
+                checked={activeOnly}
+                onChange={e => setActiveOnly(e.target.checked)}
               />
-            </div>
+              Active only
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              Min trust score:
+              <input
+                type="number"
+                aria-label="Minimum trust score"
+                min={0}
+                max={100}
+                value={minTrustScore}
+                onChange={e =>
+                  setMinTrustScore(Math.max(0, Math.min(100, Number(e.target.value))))
+                }
+                className="w-16 px-2 py-1 border rounded text-sm"
+              />
+            </label>
+            <button
+              onClick={clearFilters}
+              className="text-sm text-blue-600 underline"
+              aria-label="Clear all filters"
+            >
+              Clear filters
+            </button>
           </div>
-        )}
+        </div>
 
-        {/* Recovery Codes Display */}
-        {recoveryCodes.length > 0 && (
-          <div className="bg-yellow-50 p-6 rounded-lg mb-6">
-            <h2 className="text-xl font-semibold mb-4 text-red-600">Important: Save Your Recovery Codes</h2>
-            <div className="space-y-2">
-              {recoveryCodes.map((code, index) => (
-                <div key={index} className="bg-white p-3 rounded border font-mono text-sm">
-                  Recovery Code {index + 1}: {code}
-                </div>
-              ))}
-            </div>
-            <p className="text-sm text-gray-600 mt-4">
-              Store these codes safely. They can be used to restore access to your account if you lose your device.
-            </p>
+        {/* Error */}
+        {error && (
+          <div role="alert" className="bg-red-50 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
           </div>
         )}
 
@@ -523,48 +511,24 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
                 <div key={beneficiary.id} className="border dark:border-gray-600 rounded-lg p-4 hover:shadow-md transition-shadow bg-white dark:bg-gray-700">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h3 className="font-semibold text-lg">{beneficiary.name}</h3>
-                      <div className="mt-2 space-y-1 text-sm">
-                        <p><strong>ID:</strong> {beneficiary.id}</p>
-                        <p><strong>Disaster:</strong> {beneficiary.disasterId}</p>
-                        <p><strong>Location:</strong> {beneficiary.location}</p>
-                        <p><strong>Family Size:</strong> {beneficiary.familySize}</p>
-                        <p><strong>Registered:</strong> {formatDate(beneficiary.registrationDate)}</p>
-                        <p><strong>Last Verified:</strong> {formatDate(beneficiary.lastVerified)}</p>
-                        {beneficiary.specialNeeds.length > 0 && (
-                          <p><strong>Special Needs:</strong> {beneficiary.specialNeeds.join(', ')}</p>
-                        )}
-                      </div>
+                      <h3 className="font-semibold text-lg">{b.name}</h3>
+                      <p className="text-sm text-gray-600">
+                        ID: {b.id} · {b.location} · Family: {b.familySize}
+                      </p>
                     </div>
-                    
                     <div className="text-right">
-                      <div className={`font-semibold ${getTrustScoreColor(beneficiary.trustScore)}`}>
-                        Trust Score: {beneficiary.trustScore}/100
-                      </div>
-                      <div className="mt-2">
-                        <span className={`px-2 py-1 rounded text-xs ${
-                          beneficiary.isActive 
-                            ? 'bg-green-100 text-green-800' 
+                      <span className={`font-semibold text-sm ${getTrustColor(b.trustScore)}`}>
+                        Trust {b.trustScore}/100
+                      </span>
+                      <span
+                        className={`ml-2 px-2 py-0.5 rounded text-xs ${
+                          b.isActive
+                            ? 'bg-green-100 text-green-800'
                             : 'bg-red-100 text-red-800'
-                        }`}>
-                          {beneficiary.isActive ? 'Active' : 'Inactive'}
-                        </span>
-                      </div>
-                      
-                      <div className="mt-4 space-x-2">
-                        <button
-                          onClick={() => setSelectedBeneficiary(beneficiary)}
-                          className="bg-blue-500 text-white px-3 py-1 text-sm rounded hover:bg-blue-600"
-                        >
-                          Details
-                        </button>
-                        <button
-                          onClick={() => beneficiaryClient.generateBeneficiaryQRCode(beneficiary.id, beneficiary)}
-                          className="bg-green-500 text-white px-3 py-1 text-sm rounded hover:bg-green-600"
-                        >
-                          QR Code
-                        </button>
-                      </div>
+                        }`}
+                      >
+                        {b.isActive ? 'Active' : 'Inactive'}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -639,14 +603,19 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
               
               <div className="mt-6 flex justify-end">
                 <button
-                  onClick={() => setSelectedBeneficiary(null)}
-                  className="bg-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-400"
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
                 >
-                  Close
+                  {loadingMore ? 'Loading…' : 'Load more'}
                 </button>
-              </div>
+              ) : (
+                <p className="text-gray-500 text-sm">
+                  All beneficiaries loaded — {beneficiaries.length} total
+                </p>
+              )}
             </div>
-          </div>
+          </>
         )}
       </div>
     </div>
