@@ -398,3 +398,32 @@ export interface PaperBackupCode {
   createdAt: number;
   instructions: string;
 }
+
+// ─── Pagination ──────────────────────────────────────────────────────────────
+
+/** Opaque cursor string returned by paginated endpoints. */
+export type PaginationCursor = string;
+
+/** Generic paginated response wrapper. */
+export interface PaginatedResponse<T> {
+  /** Items in this page. */
+  items: T[];
+  /**
+   * Cursor to pass as `cursor` in the next request.
+   * `null` means there are no more pages.
+   */
+  nextCursor: PaginationCursor | null;
+  /** Convenience flag – true when `nextCursor` is non-null. */
+  hasMore: boolean;
+}
+
+/** Options accepted by paginated list methods. */
+export interface PaginationOptions {
+  /** Cursor from the previous page's `nextCursor`. Omit for the first page. */
+  cursor?: PaginationCursor;
+  /**
+   * Maximum number of items to return.
+   * Must be between 1 and 100 (inclusive). Defaults to 20.
+   */
+  limit?: number;
+}
