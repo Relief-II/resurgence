@@ -40,6 +40,11 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
   const [showVerificationForm, setShowVerificationForm] = useState(false);
   const [selectedBeneficiary, setSelectedBeneficiary] = useState<BeneficiaryProfile | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const modalRef = useRef<HTMLDivElement>(null);
+  const openModalTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const [registrationForm, setRegistrationForm] = useState({
     beneficiaryId: '', name: '', disasterId: '', location: '', walletAddress: '',
@@ -71,6 +76,9 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
   const [ussdSession, setUssdSession] = useState({
     sessionId: '', phoneNumber: '', currentStep: 'welcome', response: '',
   });
+  const ussdInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { loadBeneficiaries(); }, []);
 
   const loadBeneficiaries = useCallback(async () => {
     setListLoading(true);
@@ -159,10 +167,10 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
     }
   };
 
-  const getTrustScoreColor = (score: number) => {
-    if (score >= 80) return 'text-green-600';
-    if (score >= 60) return 'text-yellow-600';
-    return 'text-red-600';
+  const getTrustScoreLabel = (score: number) => {
+    if (score >= 80) return { label: 'High', className: 'text-green-600' };
+    if (score >= 60) return { label: 'Medium', className: 'text-yellow-600' };
+    return { label: 'Low', className: 'text-red-600' };
   };
 
   const formatDate = (ts: number) => new Date(ts).toLocaleDateString();
@@ -197,9 +205,8 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
           </button>
         </div>
 
-        {/* Registration Form */}
-        {showRegistrationForm && (
-          <div className="bg-blue-50 p-6 rounded-lg mb-6">
+          {/* Registration Form */}
+          <section id="registration-form" aria-label="Register New Beneficiary" hidden={!showRegistrationForm} className="bg-blue-50 p-6 rounded-lg mb-6">
             <h2 className="text-xl font-semibold mb-4">Register New Beneficiary</h2>
             <form onSubmit={handleRegistration} className="space-y-4" aria-label="Beneficiary registration form">
               <div className="grid grid-cols-2 gap-4">
@@ -276,12 +283,10 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
                 </button>
               </div>
             </form>
-          </div>
-        )}
+          </section>
 
-        {/* Verification Form */}
-        {showVerificationForm && (
-          <div className="bg-green-50 p-6 rounded-lg mb-6">
+          {/* Verification Form */}
+          <section id="verification-form" aria-label="Verify Beneficiary Identity" hidden={!showVerificationForm} className="bg-green-50 p-6 rounded-lg mb-6">
             <h2 className="text-xl font-semibold mb-4">Verify Beneficiary Identity</h2>
             <form onSubmit={handleVerification} className="space-y-4" aria-label="Verification form">
               <div className="grid grid-cols-2 gap-4">
@@ -319,8 +324,7 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
                 </button>
               </div>
             </form>
-          </div>
-        )}
+          </section>
 
         {/* USSD Demo */}
         {ussdSession.sessionId && (
@@ -454,8 +458,8 @@ export const BeneficiaryRegistration: React.FC<BeneficiaryRegistrationProps> = (
               </div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
