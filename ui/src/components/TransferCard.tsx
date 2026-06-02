@@ -1,26 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { TransferClient, ConditionalTransfer, SpendingRule, NetworkConfig } from '../../sdk/src/types';
-import {
-  useFormValidation,
-  FieldError,
-  compose,
-  required,
-  identifier,
-  isPositiveNumber,
-  minValue,
-  tokenType,
-  futureDate,
-  minLength,
-  maxLength,
-} from '../validation';
-import {
-  SkeletonList,
-  StatusMessage,
-  EmptyState,
-  ErrorState,
-  LoadingButton,
-  PageLoadingOverlay,
-} from './LoadingPrimitives';
+import React, { useState, useEffect } from 'react';
+import { TransferClient, ConditionalTransfer, SpendingRule, NetworkConfig, TransferTransaction } from '../../sdk/src/types';
+import { ExportButton, conditionalTransferFields, transferTransactionFields } from '../export';
 
 interface TransferCardProps {
   transferClient: TransferClient;
@@ -37,11 +17,9 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showSpendForm, setShowSpendForm] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<ConditionalTransfer | null>(null);
-  const [statusMessage, setStatusMessage] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
-
-  const modalRef = useRef<HTMLDivElement>(null);
-  const openModalTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [transactions, setTransactions] = useState<TransferTransaction[]>([]);
+  const [transactionsLoading, setTransactionsLoading] = useState(false);
+  const [transactionsError, setTransactionsError] = useState<string | null>(null);
 
   const [createForm, setCreateForm] = useState({
     transferId: '', beneficiaryId: '', amount: '', token: 'XLM', expiresAt: '', purpose: '',
@@ -87,6 +65,21 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
   }, [transferClient]);
 
   useEffect(() => { loadTransfers(); }, [loadTransfers]);
+
+  const loadTransferTransactions = async (transferId: string) => {
+    setTransactionsLoading(true);
+    setTransactionsError(null);
+    try {
+      const txns = await transferClient.getTransactions(transferId);
+      setTransactions(txns);
+    } catch (error) {
+      console.error('Failed to load transactions:', error);
+      setTransactionsError('Failed to load transaction history. Please try again.');
+      setTransactions([]);
+    } finally {
+      setTransactionsLoading(false);
+    }
+  };
 
   const handleCreateTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -383,12 +376,19 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
         )}
 
         {/* Transfers List */}
-        <section aria-label="Active Transfers">
-          <h2 className="text-xl font-semibold mb-4">Active Transfers</h2>
-          {listLoading ? (
-            <SkeletonList count={3} />
-          ) : listError ? (
-            <ErrorState message={listError} onRetry={loadTransfers} />
+        <div className="space-y-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">Active Transfers</h2>
+            <ExportButton
+              rows={transfers}
+              fields={conditionalTransferFields}
+              filenamePrefix="transfers"
+              label="Export"
+            />
+          </div>
+          
+          {loading ? (
+            <div className="text-center py-4">Loading...</div>
           ) : transfers.length === 0 ? (
             <EmptyState title="No active transfers" description="Create a conditional transfer to get started." icon="💳"
               action={
@@ -420,9 +420,16 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
                         <p><strong>Remaining:</strong> {transfer.remainingAmount}</p>
                         <p><strong>Utilization:</strong> {getUtilizationRate(transfer)}%</p>
                       </div>
-                      <div className="mt-4 flex gap-2 justify-end flex-wrap">
-                        <button onClick={() => setSelectedTransfer(transfer)}
-                          className="bg-blue-500 text-white px-3 py-1 text-sm rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400">
+                      
+                      <div className="mt-4 space-x-2">
+                        <button
+                          onClick={() => {
+                            setSelectedTransfer(transfer);
+                            setTransactions([]);
+                            setTransactionsError(null);
+                          }}
+                          className="bg-blue-500 text-white px-3 py-1 text-sm rounded hover:bg-blue-600"
+                        >
                           Details
                         </button>
                         {Date.now() > transfer.expiresAt && (
@@ -477,29 +484,67 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
                         <p><strong>Usage:</strong> {rule.currentUsage}</p>
                       </div>
                     ))}
-                  </ul>
-                )}
-              </section>
+                  </div>
+                </div>
+                
+                <div>
+                  <h3 className="font-semibold">Actions</h3>
+                  <div className="mt-2 space-x-2">
+                    <button
+                      onClick={() => loadTransferTransactions(selectedTransfer.id)}
+                      className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                    >
+                      View Transactions
+                    </button>
+                    <button
+                      onClick={() => transferClient.getTransferStatistics(selectedTransfer.id)}
+                      className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600"
+                    >
+                      Get Statistics
+                    </button>
+                  </div>
+                </div>
 
-              <section aria-label="Extend Expiry">
-                <h3 className="font-semibold mb-2">Extend Expiry</h3>
-                <form
-                  onSubmit={e => {
-                    e.preventDefault();
-                    const input = (e.currentTarget.elements.namedItem('new-expiry') as HTMLInputElement).value;
-                    if (input) handleExtendExpiry(selectedTransfer.id, input);
-                  }}
-                  className="flex gap-2"
-                >
-                  <div className="flex-1">
-                    <label htmlFor="new-expiry" className="block text-sm font-medium text-gray-700 mb-1">New Expiry Date &amp; Time</label>
-                    <input
-                      id="new-expiry"
-                      name="new-expiry"
-                      type="datetime-local"
-                      className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                <div className="mt-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <h3 className="font-semibold">Transaction History</h3>
+                    <ExportButton
+                      rows={transactions}
+                      fields={transferTransactionFields}
+                      filenamePrefix={`transfer_transactions_${selectedTransfer.id}`}
+                      label="Export"
+                      disabled={transactionsLoading || transactions.length === 0}
                     />
                   </div>
+
+                  {transactionsLoading ? (
+                    <p className="text-sm text-gray-500 mt-3">Loading transactions…</p>
+                  ) : transactionsError ? (
+                    <p className="text-sm text-red-600 mt-3">{transactionsError}</p>
+                  ) : transactions.length === 0 ? (
+                    <p className="text-sm text-gray-500 mt-3">No transaction history loaded. Click "View Transactions" to fetch history.</p>
+                  ) : (
+                    <div className="mt-3 space-y-3">
+                      {transactions.map((tx) => (
+                        <div key={tx.id} className="border rounded p-3 bg-gray-50">
+                          <div className="flex justify-between items-center text-sm">
+                            <span><strong>ID:</strong> {tx.id}</span>
+                            <span className={tx.isApproved ? 'text-green-600' : 'text-red-600'}>
+                              {tx.isApproved ? 'Approved' : 'Rejected'}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 text-sm mt-2 sm:grid-cols-2">
+                            <span><strong>Merchant:</strong> {tx.merchantId}</span>
+                            <span><strong>Amount:</strong> {tx.amount}</span>
+                            <span><strong>Category:</strong> {tx.category}</span>
+                            <span><strong>Location:</strong> {tx.location}</span>
+                            <span><strong>Time:</strong> {formatDate(tx.timestamp)}</span>
+                            {tx.rejectionReason && <span><strong>Reason:</strong> {tx.rejectionReason}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="mt-6 flex justify-end">

@@ -1,28 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { MerchantClient, Merchant, Location, NetworkConfig } from '../../sdk/src/types';
-import {
-  useFormValidation,
-  FieldError,
-  compose,
-  required,
-  identifier,
-  minLength,
-  maxLength,
-  stellarAddress,
-  businessType,
-  latitude,
-  longitude,
-  isPositiveNumber,
-  minValue,
-} from '../validation';
-import {
-  SkeletonList,
-  StatusMessage,
-  EmptyState,
-  ErrorState,
-  LoadingButton,
-  PageLoadingOverlay,
-} from './LoadingPrimitives';
+import React, { useState, useEffect } from 'react';
+import { MerchantClient, Merchant, Location, NetworkConfig, Transaction } from '../../sdk/src/types';
+import { ExportButton, merchantFields, merchantTransactionFields } from '../export';
 
 interface MerchantMapProps {
   merchantClient: MerchantClient;
@@ -39,8 +17,11 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
   const [submitStatus, setSubmitStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showOnboardingForm, setShowOnboardingForm] = useState(false);
   const [selectedMerchant, setSelectedMerchant] = useState<Merchant | null>(null);
-  const [mapCenter, setMapCenter] = useState({ lat: 40.7128, lng: -74.006 });
-  const [searchRadius, setSearchRadius] = useState(10);
+  const [merchantTransactions, setMerchantTransactions] = useState<Transaction[]>([]);
+  const [merchantTransactionsLoading, setMerchantTransactionsLoading] = useState(false);
+  const [merchantTransactionsError, setMerchantTransactionsError] = useState<string | null>(null);
+  const [mapCenter, setMapCenter] = useState({ lat: 40.7128, lng: -74.0060 }); // NYC default
+  const [searchRadius, setSearchRadius] = useState(10); // km
 
   const [onboardingForm, setOnboardingForm] = useState({
     merchantId: '', name: '', businessType: 'grocery', contactInfo: '', stellarAddress: '',
@@ -90,6 +71,21 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
     loadMerchants();
     loadVerificationQueue();
   }, [loadMerchants, loadVerificationQueue]);
+
+  const loadMerchantTransactions = async (merchantId: string) => {
+    setMerchantTransactionsLoading(true);
+    setMerchantTransactionsError(null);
+    try {
+      const txns = await merchantClient.getMerchantTransactions(merchantId);
+      setMerchantTransactions(txns);
+    } catch (error) {
+      console.error('Failed to load merchant transactions:', error);
+      setMerchantTransactionsError('Failed to load transaction history. Please try again.');
+      setMerchantTransactions([]);
+    } finally {
+      setMerchantTransactionsLoading(false);
+    }
+  };
 
   const handleOnboarding = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -375,12 +371,14 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
         )}
 
         {/* Merchants List */}
-        <section aria-label="Active Merchants">
-          <h2 className="text-xl font-semibold mb-4">Active Merchants ({merchants.length})</h2>
-          {listLoading ? (
-            <SkeletonList count={3} />
-          ) : listError ? (
-            <ErrorState message={listError} onRetry={loadMerchants} />
+        <div className="space-y-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">Active Merchants ({merchants.length})</h2>
+            <ExportButton rows={merchants} fields={merchantFields} filenamePrefix="merchants" label="Export" />
+          </div>
+          
+          {loading ? (
+            <div className="text-center py-4">Loading...</div>
           ) : merchants.length === 0 ? (
             <EmptyState title="No merchants found in this area"
               description="Try expanding the search radius or onboard a new merchant." icon="🏪"
@@ -418,9 +416,16 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
                         <p><strong>Daily Limit:</strong> {merchant.dailyLimit}</p>
                         <p><strong>Monthly:</strong> {merchant.monthlyLimit}</p>
                       </div>
-                      <div className="mt-4 flex gap-2 justify-end">
-                        <button onClick={() => setSelectedMerchant(merchant)}
-                          className="bg-blue-500 text-white px-3 py-1 text-sm rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400">
+                      
+                      <div className="mt-4 space-x-2">
+                        <button
+                          onClick={() => {
+                            setSelectedMerchant(merchant);
+                            setMerchantTransactions([]);
+                            setMerchantTransactionsError(null);
+                          }}
+                          className="bg-blue-500 text-white px-3 py-1 text-sm rounded hover:bg-blue-600"
+                        >
                           Details
                         </button>
                         <button onClick={() => merchantClient.generateMerchantQRCode(merchant.id, merchant)}
@@ -472,11 +477,40 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
                   </div>
                 </div>
                 <div>
-                  <h3 className="font-semibold">Accepted Tokens</h3>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {selectedMerchant.acceptedTokens.map((token, i) => (
-                      <span key={i} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">{token}</span>
-                    ))}
+                  <h3 className="font-semibold">Payment Information</h3>
+                  <div className="mt-2">
+                    <p><strong>Accepted Tokens:</strong></p>
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {selectedMerchant.acceptedTokens.map((token, index) => (
+                        <span key={index} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">
+                          {token}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="mt-2"><strong>Stellar TOML:</strong> {selectedMerchant.stellarTomlUrl}</p>
+                </div>
+                
+                <div>
+                  <h3 className="font-semibold">Actions</h3>
+                  <div className="mt-2 space-x-2">
+                    <button
+                      onClick={() => {
+                        const feedback = prompt('Enter feedback score (-10 to +10):');
+                        if (feedback) {
+                          merchantClient.updateReputation(adminKey, selectedMerchant.id, parseInt(feedback));
+                        }
+                      }}
+                      className="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600"
+                    >
+                      Update Reputation
+                    </button>
+                    <button
+                      onClick={() => loadMerchantTransactions(selectedMerchant.id)}
+                      className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                    >
+                      View Transactions
+                    </button>
                   </div>
                 </dl>
               </section>
@@ -521,6 +555,48 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
                   >
                     View Transactions
                   </button>
+                </div>
+
+                <div className="mt-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <h3 className="font-semibold">Merchant Transaction History</h3>
+                    <ExportButton
+                      rows={merchantTransactions}
+                      fields={merchantTransactionFields}
+                      filenamePrefix={`merchant_transactions_${selectedMerchant.id}`}
+                      label="Export"
+                      disabled={merchantTransactionsLoading || merchantTransactions.length === 0}
+                    />
+                  </div>
+
+                  {merchantTransactionsLoading ? (
+                    <p className="text-sm text-gray-500 mt-3">Loading transactions…</p>
+                  ) : merchantTransactionsError ? (
+                    <p className="text-sm text-red-600 mt-3">{merchantTransactionsError}</p>
+                  ) : merchantTransactions.length === 0 ? (
+                    <p className="text-sm text-gray-500 mt-3">No transaction history loaded. Click "View Transactions" to fetch history.</p>
+                  ) : (
+                    <div className="mt-3 space-y-3">
+                      {merchantTransactions.map((tx) => (
+                        <div key={tx.id} className="border rounded p-3 bg-gray-50">
+                          <div className="flex justify-between items-center text-sm">
+                            <span><strong>ID:</strong> {tx.id}</span>
+                            <span className={tx.isSettled ? 'text-green-600' : 'text-yellow-600'}>
+                              {tx.isSettled ? 'Settled' : 'Pending'}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 text-sm mt-2 sm:grid-cols-2">
+                            <span><strong>Merchant:</strong> {tx.merchantId}</span>
+                            <span><strong>Beneficiary:</strong> {tx.beneficiaryId}</span>
+                            <span><strong>Amount:</strong> {tx.amount}</span>
+                            <span><strong>Token:</strong> {tx.token}</span>
+                            <span><strong>Purpose:</strong> {tx.purpose}</span>
+                            <span><strong>Time:</strong> {formatDate(tx.timestamp)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="mt-6 flex justify-end">
