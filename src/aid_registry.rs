@@ -92,6 +92,13 @@ pub struct DisbursementRecord {
 }
 
 #[derive(Clone)]
+pub struct PaginatedDisbursements {
+    pub records: Vec<DisbursementRecord>,
+    pub total_count: u64,
+    pub has_more: bool,
+}
+
+#[derive(Clone)]
 pub struct FundAllocation {
     pub sector: String,
     pub amount: U256,
@@ -354,18 +361,38 @@ impl AidRegistry {
         env.storage().instance().set(&fund_key, &funds);
     }
 
-    /// Get disbursement history for a fund
-    pub fn get_disbursements(env: Env, fund_id: String) -> Vec<DisbursementRecord> {
+    /// Get disbursement history for a fund with pagination
+    pub fn get_disbursements(env: Env, fund_id: String, offset: u32, limit: u32) -> PaginatedDisbursements {
         let disbursement_key = Symbol::new(&env, &format!("disbursements_{}", fund_id));
         let disbursements: Map<String, DisbursementRecord> = env.storage().instance()
             .get(&disbursement_key)
             .unwrap_or(Map::new(&env));
         
+        let total_count = disbursements.len() as u64;
+        
         let mut result = Vec::new(&env);
+        let mut count = 0;
+        let mut skipped = 0;
+        
         for (_, record) in disbursements.iter() {
+            if skipped < offset as u64 {
+                skipped += 1;
+                continue;
+            }
+            if count >= limit as u64 {
+                break;
+            }
             result.push_back(record);
+            count += 1;
         }
-        result
+        
+        let has_more = (offset as u64 + count) < total_count;
+        
+        PaginatedDisbursements {
+            records: result,
+            total_count,
+            has_more,
+        }
     }
 
     /// Deactivate expired funds

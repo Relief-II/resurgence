@@ -83,6 +83,12 @@ export interface DisbursementRecord {
   isAutoReleased: boolean;
 }
 
+export interface PaginatedDisbursements {
+  records: DisbursementRecord[];
+  totalCount: number;
+  hasMore: boolean;
+}
+
 export interface TriggerExecutionResult {
   success: boolean;
   fundId: string;
@@ -529,12 +535,23 @@ export class EmergencyFundsClient {
   }
 
   /**
-   * Gets disbursement history for a fund
+   * Gets disbursement history for a fund with pagination
    */
-  async getDisbursementHistory(fundId: string): Promise<DisbursementRecord[]> {
+  async getDisbursementHistory(
+    fundId: string,
+    offset: number = 0,
+    limit: number = 50
+  ): Promise<PaginatedDisbursements> {
     try {
-      // Query contract for disbursements
-      return [];
+      const contract = new Contract(this.contractId);
+
+      // Note: This would typically use contract.call() in a simulation
+      // For now, returning a placeholder structure
+      return {
+        records: [],
+        totalCount: 0,
+        hasMore: false,
+      };
     } catch (error: any) {
       throw new Error(`Failed to get disbursement history: ${error.message}`);
     }

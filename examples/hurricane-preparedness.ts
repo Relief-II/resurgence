@@ -375,6 +375,20 @@ async function coordinateMultiRegionResponse(signers: Keypair[]) {
     console.log(`  Beneficiary: ${medicalBeneficiary.substring(0, 20)}...`);
     console.log(`  Deployment: Immediate to field hospitals\n`);
 
+    // Demonstrate pagination through disbursement history
+    console.log('Retrieving disbursement history with pagination...\n');
+    
+    const page1 = await emergencyFunds.getDisbursementHistory(CARIBBEAN_FUND_ID, 0, 10);
+    console.log(`Page 1: ${page1.records.length} records`);
+    console.log(`Total count: ${page1.totalCount}`);
+    console.log(`Has more: ${page1.hasMore}\n`);
+
+    if (page1.hasMore) {
+      const page2 = await emergencyFunds.getDisbursementHistory(CARIBBEAN_FUND_ID, 10, 10);
+      console.log(`Page 2: ${page2.records.length} records`);
+      console.log(`Has more: ${page2.hasMore}\n`);
+    }
+
     console.log('═══════════════════════════════════════════════════════════════\n');
   } catch (error) {
     console.error('Error in multi-region coordination:', error);
