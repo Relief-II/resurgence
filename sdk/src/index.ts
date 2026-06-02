@@ -21,6 +21,9 @@ export { MerchantApp } from './merchantApp';
 // Export all types
 export * from './types';
 
+// Export error types
+export * from './errors';
+
 // Export network configurations
 export const TESTNET_CONFIG = {
   network: 'testnet' as const,
