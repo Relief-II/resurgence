@@ -168,9 +168,13 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
           )}
         </div>
 
-        {/* Onboarding Form */}
-        {showOnboardingForm && (
-          <div className="bg-blue-50 p-6 rounded-lg mb-6">
+          {/* Onboarding Form */}
+          <section
+            id="onboarding-form"
+            aria-label="Onboard New Merchant"
+            hidden={!showOnboardingForm}
+            className="bg-blue-50 p-6 rounded-lg mb-6"
+          >
             <h2 className="text-xl font-semibold mb-4">Onboard New Merchant</h2>
             <form onSubmit={handleOnboarding} className="space-y-4" aria-label="Merchant onboarding form">
               <div className="grid grid-cols-2 gap-4">
@@ -351,10 +355,10 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
                         </button>
                       </div>
                     </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
           )}
         </section>
 
@@ -400,6 +404,49 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
                       <span key={i} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">{token}</span>
                     ))}
                   </div>
+                </dl>
+              </section>
+
+              <section aria-label="Payment Information">
+                <h3 className="font-semibold">Accepted Tokens</h3>
+                <ul className="flex flex-wrap gap-2 mt-2" aria-label="Accepted payment tokens">
+                  {selectedMerchant.acceptedTokens.map((token, index) => (
+                    <li key={index} className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-sm">{token}</li>
+                  ))}
+                </ul>
+                {selectedMerchant.stellarTomlUrl && (
+                  <p className="mt-2 text-sm">
+                    <strong>Stellar TOML:</strong>{' '}
+                    <a href={selectedMerchant.stellarTomlUrl} className="text-blue-600 underline focus:outline-none focus:ring-2 focus:ring-blue-500" target="_blank" rel="noopener noreferrer">
+                      {selectedMerchant.stellarTomlUrl}
+                    </a>
+                  </p>
+                )}
+              </section>
+
+              <section aria-label="Actions">
+                <h3 className="font-semibold mb-2">Actions</h3>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const feedback = window.prompt('Enter feedback score (-10 to +10):');
+                      if (feedback !== null) {
+                        merchantClient.updateReputation(adminKey, selectedMerchant.id, parseInt(feedback));
+                        setStatusMessage('Reputation updated.');
+                      }
+                    }}
+                    className="bg-yellow-500 text-white px-4 py-2 rounded hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2"
+                    aria-label={`Update reputation for ${selectedMerchant.name}`}
+                  >
+                    Update Reputation
+                  </button>
+                  <button
+                    onClick={() => merchantClient.getMerchantTransactions(selectedMerchant.id)}
+                    className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2"
+                    aria-label={`View transactions for ${selectedMerchant.name}`}
+                  >
+                    View Transactions
+                  </button>
                 </div>
               </div>
               <div className="mt-6 flex justify-end">
@@ -410,8 +457,8 @@ export const MerchantMap: React.FC<MerchantMapProps> = ({ merchantClient, config
               </div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

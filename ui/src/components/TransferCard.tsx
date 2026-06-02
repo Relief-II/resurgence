@@ -24,6 +24,11 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showSpendForm, setShowSpendForm] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<ConditionalTransfer | null>(null);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const modalRef = useRef<HTMLDivElement>(null);
+  const openModalTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const [createForm, setCreateForm] = useState({
     transferId: '', beneficiaryId: '', amount: '', token: 'XLM', expiresAt: '', purpose: '',
@@ -172,9 +177,41 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
           </button>
         </div>
 
-        {/* Create Transfer Form */}
-        {showCreateForm && (
-          <div className="bg-blue-50 p-6 rounded-lg mb-6">
+          <div className="flex flex-wrap gap-4 mb-6">
+            <button
+              ref={openModalTriggerRef}
+              onClick={() => setShowCreateForm(v => !v)}
+              aria-expanded={showCreateForm}
+              aria-controls="create-transfer-form"
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              {showCreateForm ? 'Hide Create Form' : 'Create Transfer'}
+            </button>
+            <button
+              onClick={() => setShowSpendForm(v => !v)}
+              aria-expanded={showSpendForm}
+              aria-controls="spend-form"
+              className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+            >
+              {showSpendForm ? 'Hide Spend Form' : 'Process Payment'}
+            </button>
+            <button
+              onClick={loadTransfers}
+              disabled={loading}
+              aria-disabled={loading}
+              className="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50"
+            >
+              Refresh
+            </button>
+          </div>
+
+          {/* Create Transfer Form */}
+          <section
+            id="create-transfer-form"
+            aria-label="Create Conditional Transfer"
+            hidden={!showCreateForm}
+            className="bg-blue-50 p-6 rounded-lg mb-6"
+          >
             <h2 className="text-xl font-semibold mb-4">Create Conditional Transfer</h2>
             <form onSubmit={handleCreateTransfer} className="space-y-4" aria-label="Create transfer form">
               <div className="grid grid-cols-2 gap-4">
@@ -216,12 +253,15 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
                 </button>
               </div>
             </form>
-          </div>
-        )}
+          </section>
 
-        {/* Spend Form */}
-        {showSpendForm && (
-          <div className="bg-green-50 p-6 rounded-lg mb-6">
+          {/* Spend Form */}
+          <section
+            id="spend-form"
+            aria-label="Process Payment"
+            hidden={!showSpendForm}
+            className="bg-green-50 p-6 rounded-lg mb-6"
+          >
             <h2 className="text-xl font-semibold mb-4">Process Payment</h2>
             <form onSubmit={handleSpend} className="space-y-4" aria-label="Process payment form">
               <div className="grid grid-cols-2 gap-4">
@@ -364,6 +404,28 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
                         <p><strong>Usage:</strong> {rule.currentUsage}</p>
                       </div>
                     ))}
+                  </ul>
+                )}
+              </section>
+
+              <section aria-label="Extend Expiry">
+                <h3 className="font-semibold mb-2">Extend Expiry</h3>
+                <form
+                  onSubmit={e => {
+                    e.preventDefault();
+                    const input = (e.currentTarget.elements.namedItem('new-expiry') as HTMLInputElement).value;
+                    if (input) handleExtendExpiry(selectedTransfer.id, input);
+                  }}
+                  className="flex gap-2"
+                >
+                  <div className="flex-1">
+                    <label htmlFor="new-expiry" className="block text-sm font-medium text-gray-700 mb-1">New Expiry Date &amp; Time</label>
+                    <input
+                      id="new-expiry"
+                      name="new-expiry"
+                      type="datetime-local"
+                      className="w-full px-3 py-2 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
                 </div>
               </div>
@@ -375,8 +437,8 @@ export const TransferCard: React.FC<TransferCardProps> = ({ transferClient, conf
               </div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
