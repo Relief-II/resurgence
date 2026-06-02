@@ -1,22 +1,27 @@
-import { 
-  Server, 
-  TransactionBuilder, 
-  Networks, 
-  Keypair, 
+import {
+  Server,
+  TransactionBuilder,
+  Networks,
+  Keypair,
   Contract,
   Address,
   nativeToScVal,
   scValToNative
 } from 'stellar-sdk';
-import { 
-  BeneficiaryProfile, 
-  VerificationFactor, 
+import {
+  BeneficiaryProfile,
+  VerificationFactor,
   RecoveryCode,
   MerchantOnboardingRequest,
   PaginatedResponse,
   PaginationOptions,
 } from './types';
 import { createHash } from 'crypto-js';
+import {
+  BeneficiaryNotFoundError,
+  ValidationError,
+  NetworkError,
+} from './errors';
 
 export class BeneficiaryClient {
   private server: Server;
@@ -75,7 +80,7 @@ export class BeneficiaryClient {
     if (result.status === 'SUCCESS') {
       return `Beneficiary ${beneficiaryId} registered successfully`;
     } else {
-      throw new Error(`Failed to register beneficiary: ${result.status}`);
+      throw new NetworkError('register beneficiary', result.status, { beneficiaryId });
     }
   }
 
@@ -113,7 +118,7 @@ export class BeneficiaryClient {
     if (result.status === 'SUCCESS') {
       return scValToNative(result.result.retval);
     } else {
-      throw new Error(`Failed to verify beneficiary: ${result.status}`);
+      throw new NetworkError('verify beneficiary', result.status, { beneficiaryId });
     }
   }
 
@@ -273,7 +278,7 @@ export class BeneficiaryClient {
     if (result.status === 'SUCCESS') {
       return `Location updated for beneficiary ${beneficiaryId}`;
     } else {
-      throw new Error(`Failed to update location: ${result.status}`);
+      throw new NetworkError('update location', result.status, { beneficiaryId });
     }
   }
 
