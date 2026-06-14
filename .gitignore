@@ -4,3 +4,5 @@ dist/
 Cargo.lock
 .claude/
 test_snapshots/
+*.js.map
+*.d.ts.map
