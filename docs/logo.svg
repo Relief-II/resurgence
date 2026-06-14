@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 160" width="520" height="160">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0a1628;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0d2447;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="starGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4fc3f7;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0288d1;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="heartGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ef5350;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#b71c1c;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="softGlow">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="520" height="160" rx="16" fill="url(#bgGrad)"/>
+
+  <!-- Subtle grid lines -->
+  <line x1="0" y1="80" x2="520" y2="80" stroke="#ffffff" stroke-opacity="0.04" stroke-width="1"/>
+  <line x1="260" y1="0" x2="260" y2="160" stroke="#ffffff" stroke-opacity="0.04" stroke-width="1"/>
+
+  <!-- === Icon group: centered at x=82, y=80 === -->
+
+  <!-- Outer orbit ring -->
+  <circle cx="82" cy="80" r="54" fill="none" stroke="#4fc3f7" stroke-opacity="0.15" stroke-width="1.5" stroke-dasharray="4 3"/>
+
+  <!-- Rising arc (resurgence/hope) -->
+  <path d="M 38 100 Q 82 30 126 100" fill="none" stroke="#4fc3f7" stroke-opacity="0.35" stroke-width="1.5"/>
+
+  <!-- Stellar star — 5-point, centered at 82,72 -->
+  <polygon
+    points="82,42 88.5,63 111,63 93,76 99.5,97 82,84 64.5,97 71,76 53,63 75.5,63"
+    fill="url(#starGrad)"
+    filter="url(#glow)"
+    opacity="0.95"
+  />
+
+  <!-- Heart overlaid at bottom of star -->
+  <path d="M82,90 C82,90 70,80 70,73 C70,68 76,65 82,71 C88,65 94,68 94,73 C94,80 82,90 82,90Z"
+    fill="url(#heartGrad)"
+    filter="url(#softGlow)"
+    opacity="0.9"
+  />
+
+  <!-- Small rising dots (upward momentum / blockchain nodes) -->
+  <circle cx="58" cy="108" r="2.5" fill="#4fc3f7" opacity="0.6"/>
+  <circle cx="70" cy="116" r="2" fill="#4fc3f7" opacity="0.45"/>
+  <circle cx="82" cy="120" r="2.5" fill="#4fc3f7" opacity="0.6"/>
+  <circle cx="94" cy="116" r="2" fill="#4fc3f7" opacity="0.45"/>
+  <circle cx="106" cy="108" r="2.5" fill="#4fc3f7" opacity="0.6"/>
+
+  <!-- Connector lines between dots -->
+  <line x1="58" y1="108" x2="70" y2="116" stroke="#4fc3f7" stroke-opacity="0.3" stroke-width="1"/>
+  <line x1="70" y1="116" x2="82" y2="120" stroke="#4fc3f7" stroke-opacity="0.3" stroke-width="1"/>
+  <line x1="82" y1="120" x2="94" y2="116" stroke="#4fc3f7" stroke-opacity="0.3" stroke-width="1"/>
+  <line x1="94" y1="116" x2="106" y2="108" stroke="#4fc3f7" stroke-opacity="0.3" stroke-width="1"/>
+
+  <!-- === Text group === -->
+
+  <!-- Main title -->
+  <text x="158" y="72" font-family="'Segoe UI', Arial, sans-serif" font-size="36" font-weight="700" letter-spacing="1" fill="#ffffff" filter="url(#glow)">RESURGENCE</text>
+
+  <!-- Divider line -->
+  <line x1="158" y1="84" x2="490" y2="84" stroke="#4fc3f7" stroke-opacity="0.4" stroke-width="1"/>
+
+  <!-- Subtitle -->
+  <text x="158" y="104" font-family="'Segoe UI', Arial, sans-serif" font-size="13" font-weight="400" letter-spacing="2" fill="#90caf9" opacity="0.9">STELLAR DISASTER RELIEF PLATFORM</text>
+
+  <!-- Tag line -->
+  <text x="158" y="126" font-family="'Segoe UI', Arial, sans-serif" font-size="11" fill="#546e7a" letter-spacing="0.5">Blockchain-powered emergency payments &amp; humanitarian aid</text>
+
+  <!-- Stellar badge -->
+  <rect x="158" y="136" width="64" height="16" rx="4" fill="#0288d1" opacity="0.25"/>
+  <text x="163" y="148" font-family="'Segoe UI', Arial, sans-serif" font-size="9.5" font-weight="600" fill="#4fc3f7" letter-spacing="1">STELLAR</text>
+
+  <!-- Soroban badge -->
+  <rect x="228" y="136" width="66" height="16" rx="4" fill="#6a1b9a" opacity="0.3"/>
+  <text x="233" y="148" font-family="'Segoe UI', Arial, sans-serif" font-size="9.5" font-weight="600" fill="#ce93d8" letter-spacing="1">SOROBAN</text>
+
+  <!-- Open Source badge -->
+  <rect x="300" y="136" width="82" height="16" rx="4" fill="#1b5e20" opacity="0.3"/>
+  <text x="305" y="148" font-family="'Segoe UI', Arial, sans-serif" font-size="9.5" font-weight="600" fill="#a5d6a7" letter-spacing="1">OPEN SOURCE</text>
+</svg>
