@@ -369,7 +369,7 @@ export class MerchantNetworkSDK {
   async getFraudAlerts(merchantId: string): Promise<FraudAlert[]> {
     try {
       const result = await this.contract.call(
-        "get_fraud_alerts",
+        "get_merchant_fraud_alerts",
         nativeToScVal(merchantId)
       );
       return scValToNative(result.result.retval);

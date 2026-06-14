@@ -465,8 +465,9 @@ export class BeneficiaryClient {
     response: string;
     nextStep: string;
   } {
+    const safeName = input.replace(/[<>"'&]/g, '').substring(0, 100);
     return {
-      response: `Thank you ${input}. Please enter your current location (city/village):`,
+      response: `Thank you ${safeName}. Please enter your current location (city/village):`,
       nextStep: 'register_location'
     };
   }
@@ -486,7 +487,7 @@ export class BeneficiaryClient {
     nextStep: string;
     completed?: boolean;
   } {
-    const familySize = parseInt(input);
+    const familySize = parseInt(input, 10);
     if (isNaN(familySize) || familySize < 1) {
       return {
         response: 'Invalid family size. Please enter a number greater than 0:',

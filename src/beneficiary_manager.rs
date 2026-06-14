@@ -1,8 +1,9 @@
-use soroban_sdk::{contract, contractimpl, Address, Env, Symbol, String, Vec, Map, U256, u64, BytesN};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol, String, Vec, Map, BytesN, Bytes};
 
 #[contract]
 pub struct BeneficiaryManager;
 
+#[contracttype]
 #[derive(Clone)]
 pub struct BeneficiaryIdentity {
     pub id_hash: BytesN<32>, // Pseudonymous identifier (never real name)
@@ -19,6 +20,7 @@ pub struct BeneficiaryIdentity {
     pub temporary_credentials: Vec<TemporaryCredential>,
 }
 
+#[contracttype]
 #[derive(Clone)]
 pub struct BeneficiaryProfile {
     pub id: String,
@@ -33,9 +35,9 @@ pub struct BeneficiaryProfile {
     pub family_size: u32,
     pub special_needs: Vec<String>,
     pub trust_score: u32, // 0-100 based on behavioral patterns
-    pub identity: Option<BeneficiaryIdentity>,
 }
 
+#[contracttype]
 #[derive(Clone)]
 pub struct IdentityFactor {
     pub factor_type: String, // "knowledge", "possession", "social", "behavioral", "institutional"
@@ -45,6 +47,7 @@ pub struct IdentityFactor {
     pub verifier: Option<Address>, // NGO worker or community member
 }
 
+#[contracttype]
 #[derive(Clone)]
 pub struct VerificationFactor {
     pub factor_type: String, // "possession", "behavioral", "social"
@@ -53,6 +56,7 @@ pub struct VerificationFactor {
     pub verified_at: u64,
 }
 
+#[contracttype]
 #[derive(Clone)]
 pub struct RecoveryCode {
     pub beneficiary_id: String,
@@ -62,6 +66,7 @@ pub struct RecoveryCode {
     pub is_used: bool,
 }
 
+#[contracttype]
 #[derive(Clone)]
 pub struct TemporaryCredential {
     pub credential_hash: BytesN<32>,
@@ -71,6 +76,7 @@ pub struct TemporaryCredential {
     pub is_active: bool,
 }
 
+#[contracttype]
 #[derive(Clone)]
 pub struct GeofenceZone {
     pub zone_name: String,
@@ -80,6 +86,7 @@ pub struct GeofenceZone {
     pub is_safe: bool,
 }
 
+#[contracttype]
 #[derive(Clone)]
 pub struct SocialRecoveryRequest {
     pub beneficiary_id_hash: BytesN<32>,
@@ -115,9 +122,10 @@ impl BeneficiaryManager {
             .unwrap_or(Map::new(&env));
         
         if beneficiaries.contains_key(beneficiary_id.clone()) {
-            panic_with_error!(&env, "Beneficiary already registered");
+            panic!("Beneficiary already registered");
         }
-        
+
+        let mut beneficiaries = beneficiaries;
         // Create beneficiary profile
         let profile = BeneficiaryProfile {
             id: beneficiary_id.clone(),
@@ -132,7 +140,6 @@ impl BeneficiaryManager {
             family_size,
             special_needs,
             trust_score: 50, // Initial trust score
-            identity: None,
         };
         
         beneficiaries.set(beneficiary_id.clone(), profile);
@@ -153,13 +160,13 @@ impl BeneficiaryManager {
         let current_time = env.ledger().timestamp();
         
         // Generate 3 recovery codes with different expiry times
-        for i in 0..3 {
+        for i in 0..3i32 {
             let code_hash = Self::hash_recovery_code(env, &beneficiary_id, i);
             let recovery_code = RecoveryCode {
                 beneficiary_id: beneficiary_id.clone(),
                 code_hash,
                 created_at: current_time,
-                expires_at: current_time + (86400 * (i + 1) * 30), // 30, 60, 90 days
+                expires_at: current_time + (86400u64 * ((i as u64) + 1) * 30), // 30, 60, 90 days
                 is_used: false,
             };
             codes.push_back(recovery_code);
@@ -169,13 +176,17 @@ impl BeneficiaryManager {
         env.storage().instance().set(&recovery_key, &recovery_codes);
     }
 
-    /// Simple hash function for recovery codes (in production, use secure hashing)
+    /// Hash a soroban `String` into a 32-byte digest using the host SHA-256.
+    fn hash_string(env: &Env, value: &String) -> BytesN<32> {
+        let bytes = Bytes::from_slice(env, crate::sstr_to_alloc(value).as_bytes());
+        env.crypto().sha256(&bytes).to_bytes()
+    }
+
+    /// Derive a recovery-code hash from the beneficiary id and an index.
     fn hash_recovery_code(env: &Env, beneficiary_id: &String, index: i32) -> BytesN<32> {
-        use soroban_sdk::crypto::sha256;
-        let mut data = Vec::new(env);
-        data.push_back(String::from_str(env, beneficiary_id));
-        data.push_back(String::from_str(env, &index.to_string()));
-        sha256(&data.to_string().into())
+        let seed = format!("{}_{}", crate::sstr_to_alloc(beneficiary_id), index);
+        let bytes = Bytes::from_slice(env, seed.as_bytes());
+        env.crypto().sha256(&bytes).to_bytes()
     }
 
     /// Verify beneficiary using behavioral/possession factors
@@ -249,28 +260,34 @@ impl BeneficiaryManager {
         let current_time = env.ledger().timestamp();
         
         if let Some(mut codes) = recovery_codes.get(beneficiary_id.clone()) {
-            for mut code in codes.iter() {
-                if code.code_hash == recovery_code 
-                    && !code.is_used 
-                    && current_time <= code.expires_at {
-                    
-                    // Mark code as used
-                    code.is_used = true;
-                    
-                    // Update beneficiary wallet address
-                    let beneficiaries_key = Symbol::new(&env, "beneficiaries");
-                    let mut beneficiaries: Map<String, BeneficiaryProfile> = env.storage().instance()
-                        .get(&beneficiaries_key)
-                        .unwrap_or(Map::new(&env));
-                    
-                    if let Some(mut profile) = beneficiaries.get(beneficiary_id.clone()) {
-                        profile.wallet_address = new_wallet;
-                        profile.last_verified = current_time;
-                        beneficiaries.set(beneficiary_id, profile);
-                        env.storage().instance().set(&beneficiaries_key, &beneficiaries);
+            let codes_len = codes.len();
+            for i in 0..codes_len {
+                if let Some(mut code) = codes.get(i) {
+                    if code.code_hash == recovery_code
+                        && !code.is_used
+                        && current_time <= code.expires_at
+                    {
+                        // Mark code as used and persist back into the Vec and storage
+                        code.is_used = true;
+                        codes.set(i, code);
+                        recovery_codes.set(beneficiary_id.clone(), codes);
+                        env.storage().instance().set(&recovery_key, &recovery_codes);
+
+                        // Update beneficiary wallet address
+                        let beneficiaries_key = Symbol::new(&env, "beneficiaries");
+                        let mut beneficiaries: Map<String, BeneficiaryProfile> = env.storage().instance()
+                            .get(&beneficiaries_key)
+                            .unwrap_or(Map::new(&env));
+
+                        if let Some(mut profile) = beneficiaries.get(beneficiary_id.clone()) {
+                            profile.wallet_address = new_wallet;
+                            profile.last_verified = current_time;
+                            beneficiaries.set(beneficiary_id, profile);
+                            env.storage().instance().set(&beneficiaries_key, &beneficiaries);
+                        }
+
+                        return true;
                     }
-                    
-                    return true;
                 }
             }
         }
@@ -346,6 +363,7 @@ impl BeneficiaryManager {
         // Soroban Vec doesn't have sort_by, so we use insertion sort
         // (dataset sizes are bounded by contract storage limits).
         let len = all.len();
+        
         for i in 1..len {
             let mut j = i;
             while j > 0 {
@@ -465,10 +483,7 @@ impl BeneficiaryManager {
         }
         
         // Hash duress PIN if provided
-        let duress_pin_hash = duress_pin.map(|pin| {
-            use soroban_sdk::crypto::sha256;
-            sha256(&env, &pin.into())
-        });
+        let duress_pin_hash = duress_pin.map(|pin| Self::hash_string(&env, &pin));
         
         let identity = BeneficiaryIdentity {
             id_hash: id_hash.clone(),
@@ -494,14 +509,12 @@ impl BeneficiaryManager {
 
     /// Generate pseudonymous identity hash from factors
     fn generate_identity_hash(env: &Env, factors: &Vec<IdentityFactor>) -> BytesN<32> {
-        use soroban_sdk::crypto::sha256;
-        
-        let mut combined = Vec::new(env);
+        let mut combined = Bytes::new(env);
         for factor in factors.iter() {
-            combined.push_back(factor.factor_hash.clone());
+            combined.extend_from_array(&factor.factor_hash.to_array());
         }
-        
-        sha256(env, &combined.to_string().into())
+
+        env.crypto().sha256(&combined).to_bytes()
     }
 
     /// Social recovery: 3-of-5 trusted contacts can restore access
@@ -619,15 +632,13 @@ impl BeneficiaryManager {
             panic!("Unauthorized");
         }
         
-        // Generate temporary credential
-        use soroban_sdk::crypto::sha256;
+        // Generate temporary credential by hashing id_hash || device || timestamp
         let current_time = env.ledger().timestamp();
-        let credential_data = format!("{}_{}_{}",
-            id_hash.to_string(),
-            device_fingerprint,
-            current_time
-        );
-        let credential_hash = sha256(&env, &credential_data.into());
+        let mut credential_data = Bytes::new(&env);
+        credential_data.extend_from_array(&id_hash.to_array());
+        credential_data.extend_from_slice(crate::sstr_to_alloc(&device_fingerprint).as_bytes());
+        credential_data.extend_from_array(&current_time.to_le_bytes());
+        let credential_hash = env.crypto().sha256(&credential_data).to_bytes();
         
         let temp_cred = TemporaryCredential {
             credential_hash: credential_hash.clone(),
@@ -688,19 +699,17 @@ impl BeneficiaryManager {
         id_hash: BytesN<32>,
         pin: String,
     ) -> (bool, bool) { // (is_valid, is_duress)
-        use soroban_sdk::crypto::sha256;
-        
         let identities_key = Symbol::new(&env, "identities");
         let identities: Map<BytesN<32>, BeneficiaryIdentity> = env.storage().persistent()
             .get(&identities_key)
             .unwrap_or(Map::new(&env));
-        
+
         let identity = match identities.get(id_hash) {
             Some(id) => id,
             None => return (false, false),
         };
-        
-        let pin_hash = sha256(&env, &pin.into());
+
+        let pin_hash = Self::hash_string(&env, &pin);
         
         // Check duress PIN first
         if let Some(duress_hash) = identity.duress_pin_hash {
@@ -750,14 +759,15 @@ impl BeneficiaryManager {
         false
     }
 
-    /// Calculate distance between two points (simplified Haversine)
+    /// Calculate distance between two points using integer math only.
+    ///
+    /// Coordinates are scaled by 1e6. Returns a rough distance approximation
+    /// (no floating point, suitable for the no_std contract environment).
     fn calculate_distance(lat1: i64, lon1: i64, lat2: i64, lon2: i64) -> u32 {
-        // Simplified distance calculation (in meters)
-        // In production, use proper Haversine formula
-        let dlat = (lat2 - lat1).abs();
-        let dlon = (lon2 - lon1).abs();
-        let distance = ((dlat * dlat + dlon * dlon) as f64).sqrt();
-        (distance / 10.0) as u32 // Rough approximation
+        let dlat = (lat2 - lat1).unsigned_abs() as u128;
+        let dlon = (lon2 - lon1).unsigned_abs() as u128;
+        let dist = (dlat * dlat + dlon * dlon).isqrt();
+        (dist / 10).min(u32::MAX as u128) as u32 // Rough approximation
     }
 
     /// Update trust score based on activity

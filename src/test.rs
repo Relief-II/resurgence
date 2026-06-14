@@ -19,8 +19,8 @@ fn str(env: &Env, s: &str) -> String {
     String::from_str(env, s)
 }
 
-fn u256(v: u64) -> U256 {
-    U256::from_u64(v)
+fn u256(env: &Env, v: u128) -> U256 {
+    U256::from_u128(env, v)
 }
 
 // ─── AidRegistry Tests ──────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ mod aid_registry_tests {
             &str(&env, "fund_001"),
             &str(&env, "Haiti Earthquake Relief"),
             &str(&env, "Emergency fund for Haiti earthquake"),
-            &u256(1_000_000),
+            &u256(&env, 1_000_000),
             &str(&env, "earthquake"),
             &str(&env, "Haiti"),
             &9_999_999_999u64,
@@ -69,7 +69,7 @@ mod aid_registry_tests {
 
         let f = fund.unwrap();
         assert_eq!(f.id, str(&env, "fund_001"));
-        assert_eq!(f.total_amount, u256(1_000_000));
+        assert_eq!(f.total_amount, u256(&env, 1_000_000));
         assert!(f.is_active);
         assert_eq!(f.required_signatures, 2u32);
     }
@@ -97,7 +97,7 @@ mod aid_registry_tests {
             &str(&env, "fund_a"),
             &str(&env, "Fund A"),
             &str(&env, "Desc A"),
-            &u256(500_000),
+            &u256(&env, 500_000),
             &str(&env, "flood"),
             &str(&env, "Region A"),
             &9_999_999_999u64,
@@ -110,7 +110,7 @@ mod aid_registry_tests {
             &str(&env, "fund_b"),
             &str(&env, "Fund B"),
             &str(&env, "Desc B"),
-            &u256(300_000),
+            &u256(&env, 300_000),
             &str(&env, "drought"),
             &str(&env, "Region B"),
             &9_999_999_999u64,
@@ -137,7 +137,7 @@ mod aid_registry_tests {
             &str(&env, "expired_fund"),
             &str(&env, "Expired Fund"),
             &str(&env, "Will expire"),
-            &u256(100_000),
+            &u256(&env, 100_000),
             &str(&env, "earthquake"),
             &str(&env, "Zone X"),
             &100u64,
@@ -169,7 +169,7 @@ mod aid_registry_tests {
             &str(&env, "fund_t"),
             &str(&env, "Trigger Fund"),
             &str(&env, "Has trigger"),
-            &u256(500_000),
+            &u256(&env, 500_000),
             &str(&env, "seismic"),
             &str(&env, "Zone T"),
             &9_999_999_999u64,
@@ -184,11 +184,10 @@ mod aid_registry_tests {
             &str(&env, "seismic"),
             &str(&env, "magnitude_7.0"),
             &str(&env, "usgs"),
-            &u256(100_000),
+            &u256(&env, 100_000),
             &18_900_000i64,   // ~18.9° latitude × 1e6
             &-72_300_000i64,  // ~-72.3° longitude × 1e6
             &50u64,
-            &2u32,
         );
 
         let triggers_list = client.get_fund_triggers(&str(&env, "fund_t"));
@@ -209,7 +208,7 @@ mod aid_registry_tests {
             &str(&env, "fund_alloc"),
             &str(&env, "Allocation Fund"),
             &str(&env, "For allocation"),
-            &u256(1_000_000),
+            &u256(&env, 1_000_000),
             &str(&env, "flood"),
             &str(&env, "Region Y"),
             &9_999_999_999u64,
@@ -222,9 +221,11 @@ mod aid_registry_tests {
             &admin,
             &str(&env, "fund_alloc"),
             &str(&env, "medical"),
-            &u256(200_000),
+            &u256(&env, 200_000),
             &bens,
             &str(&env, "WHO assessment report"),
+            &u256(&env, 0),
+            &u256(&env, 500_000),
         );
 
         let allocations = client.get_fund_allocations(&str(&env, "fund_alloc"));
@@ -245,7 +246,7 @@ mod aid_registry_tests {
             &str(&env, "fund_status"),
             &str(&env, "Status Fund"),
             &str(&env, "Status test"),
-            &u256(800_000),
+            &u256(&env, 800_000),
             &str(&env, "hurricane"),
             &str(&env, "Region S"),
             &9_999_999_999u64,
@@ -257,9 +258,9 @@ mod aid_registry_tests {
             client.get_fund_status(&str(&env, "fund_status"));
 
         assert_eq!(status, str(&env, "active"));
-        assert_eq!(total, u256(800_000));
-        assert_eq!(released, u256(0));
-        assert_eq!(available, u256(800_000));
+        assert_eq!(total, u256(&env, 800_000));
+        assert_eq!(released, u256(&env, 0));
+        assert_eq!(available, u256(&env, 800_000));
     }
 
     #[test]
@@ -275,7 +276,7 @@ mod aid_registry_tests {
             &str(&env, "fund_recall"),
             &str(&env, "Recall Fund"),
             &str(&env, "Recall test"),
-            &u256(400_000),
+            &u256(&env, 400_000),
             &str(&env, "drought"),
             &str(&env, "Zone R"),
             &9_999_999_999u64,
@@ -302,7 +303,7 @@ mod aid_registry_tests {
             &str(&env, "fund_dt"),
             &str(&env, "Deactivate Trigger Fund"),
             &str(&env, "Test"),
-            &u256(200_000),
+            &u256(&env, 200_000),
             &str(&env, "health"),
             &str(&env, "Zone DT"),
             &9_999_999_999u64,
@@ -317,11 +318,10 @@ mod aid_registry_tests {
             &str(&env, "health"),
             &str(&env, "outbreak"),
             &str(&env, "who"),
-            &u256(50_000),
+            &u256(&env, 50_000),
             &0i64,
             &0i64,
             &10u64,
-            &1u32,
         );
 
         client.deactivate_trigger(&admin, &str(&env, "fund_dt"), &str(&env, "trig_dt"));
@@ -520,8 +520,8 @@ mod cash_transfer_tests {
         SpendingRule {
             rule_type: str(env, "category_limit"),
             parameters: params,
-            limit: u256(500),
-            current_usage: u256(0),
+            limit: u256(&env, 500),
+            current_usage: u256(&env, 0),
         }
     }
 
@@ -536,7 +536,7 @@ mod cash_transfer_tests {
             &creator,
             &str(&env, "txfr_001"),
             &str(&env, "ben_001"),
-            &u256(1_000),
+            &u256(&env, 1_000),
             &str(&env, "USDC"),
             &9_999_999_999u64,
             &rules,
@@ -547,8 +547,8 @@ mod cash_transfer_tests {
         assert!(t.is_some());
 
         let transfer = t.unwrap();
-        assert_eq!(transfer.amount, u256(1_000));
-        assert_eq!(transfer.remaining_amount, u256(1_000));
+        assert_eq!(transfer.amount, u256(&env, 1_000));
+        assert_eq!(transfer.remaining_amount, u256(&env, 1_000));
         assert!(transfer.is_active);
     }
 
@@ -564,7 +564,7 @@ mod cash_transfer_tests {
             &creator,
             &str(&env, "txfr_spend"),
             &str(&env, "ben_spend"),
-            &u256(1_000),
+            &u256(&env, 1_000),
             &str(&env, "USDC"),
             &9_999_999_999u64,
             &rules,
@@ -575,7 +575,7 @@ mod cash_transfer_tests {
             &beneficiary,
             &str(&env, "txfr_spend"),
             &str(&env, "merchant_001"),
-            &u256(300),
+            &u256(&env, 300),
             &str(&env, "food"),
             &str(&env, "camp_market"),
         );
@@ -583,8 +583,8 @@ mod cash_transfer_tests {
         assert!(approved);
 
         let transfer = client.get_transfer(&str(&env, "txfr_spend")).unwrap();
-        assert_eq!(transfer.spent_amount, u256(300));
-        assert_eq!(transfer.remaining_amount, u256(700));
+        assert_eq!(transfer.spent_amount, u256(&env, 300));
+        assert_eq!(transfer.remaining_amount, u256(&env, 700));
     }
 
     #[test]
@@ -598,7 +598,7 @@ mod cash_transfer_tests {
             &creator,
             &str(&env, "txfr_exceed"),
             &str(&env, "ben_exceed"),
-            &u256(100),
+            &u256(&env, 100),
             &str(&env, "USDC"),
             &9_999_999_999u64,
             &Vec::new(&env),
@@ -609,7 +609,7 @@ mod cash_transfer_tests {
             &beneficiary,
             &str(&env, "txfr_exceed"),
             &str(&env, "merchant_002"),
-            &u256(200), // More than transfer amount
+            &u256(&env, 200), // More than transfer amount
             &str(&env, "food"),
             &str(&env, "camp_market"),
         );
@@ -629,7 +629,7 @@ mod cash_transfer_tests {
             &creator,
             &str(&env, "txfr_exp"),
             &str(&env, "ben_exp"),
-            &u256(500),
+            &u256(&env, 500),
             &str(&env, "USDC"),
             &100u64,
             &Vec::new(&env),
@@ -643,7 +643,7 @@ mod cash_transfer_tests {
             &beneficiary,
             &str(&env, "txfr_exp"),
             &str(&env, "merchant_003"),
-            &u256(100),
+            &u256(&env, 100),
             &str(&env, "food"),
             &str(&env, "market"),
         );
@@ -661,7 +661,7 @@ mod cash_transfer_tests {
             &creator,
             &str(&env, "txfr_recall"),
             &str(&env, "ben_recall"),
-            &u256(800),
+            &u256(&env, 800),
             &str(&env, "USDC"),
             &100u64,
             &Vec::new(&env),
@@ -671,7 +671,7 @@ mod cash_transfer_tests {
         env.ledger().with_mut(|l| l.timestamp = 200);
         let recalled = client.recall_funds(&creator, &str(&env, "txfr_recall"));
 
-        assert_eq!(recalled, u256(800));
+        assert_eq!(recalled, u256(&env, 800));
     }
 
     #[test]
@@ -684,7 +684,7 @@ mod cash_transfer_tests {
             &creator,
             &str(&env, "txfr_early"),
             &str(&env, "ben_early"),
-            &u256(300),
+            &u256(&env, 300),
             &str(&env, "USDC"),
             &9_999_999_999u64,
             &Vec::new(&env),
@@ -692,7 +692,7 @@ mod cash_transfer_tests {
         );
 
         let recalled = client.recall_funds(&creator, &str(&env, "txfr_early"));
-        assert_eq!(recalled, u256(0));
+        assert_eq!(recalled, u256(&env, 0));
     }
 
     #[test]
@@ -706,7 +706,7 @@ mod cash_transfer_tests {
             &creator,
             &str(&env, "txfr_hist"),
             &str(&env, "ben_hist"),
-            &u256(1_000),
+            &u256(&env, 1_000),
             &str(&env, "USDC"),
             &9_999_999_999u64,
             &Vec::new(&env),
@@ -717,7 +717,7 @@ mod cash_transfer_tests {
             &beneficiary,
             &str(&env, "txfr_hist"),
             &str(&env, "merchant_a"),
-            &u256(100),
+            &u256(&env, 100),
             &str(&env, "food"),
             &str(&env, "market_a"),
         );
@@ -726,7 +726,7 @@ mod cash_transfer_tests {
             &beneficiary,
             &str(&env, "txfr_hist"),
             &str(&env, "merchant_b"),
-            &u256(200),
+            &u256(&env, 200),
             &str(&env, "medical"),
             &str(&env, "clinic_a"),
         );
@@ -751,8 +751,8 @@ mod merchant_tests {
 
     fn location(env: &Env) -> Location {
         Location {
-            latitude: 18.5944f64,
-            longitude: -72.3074f64,
+            latitude: 18_594_400i64,
+            longitude: -72_307_400i64,
             address: str(env, "Rue des Casernes"),
             city: str(env, "Port-au-Prince"),
             country: str(env, "Haiti"),
@@ -784,7 +784,7 @@ mod merchant_tests {
         let merchant = client.get_merchant(&str(&env, "merchant_ft")).unwrap();
         assert!(merchant.is_active);
         assert_eq!(merchant.status, STATUS_ACTIVE);
-        assert_eq!(merchant.daily_volume_limit, u256(10_000));
+        assert_eq!(merchant.daily_volume_limit, u256(&env, 10_000));
     }
 
     #[test]
@@ -879,18 +879,32 @@ mod merchant_tests {
 mod supply_chain_tests {
     use super::*;
     use crate::supply_chain_tracker::{
-        Location, SupplyChainTracker, SupplyChainTrackerClient, TemperatureRequirements,
+        Location, SupplyChainTracker, SupplyChainTrackerClient,
     };
+    use crate::rbac::{ROLE_NGO, ROLE_RECIPIENT, ROLE_TRANSPORTER};
 
     fn deploy(env: &Env) -> SupplyChainTrackerClient {
         let id = env.register(SupplyChainTracker, ());
         SupplyChainTrackerClient::new(env, &id)
     }
 
+    /// Seed a role for `who` directly into the contract's RBAC storage so the
+    /// role-gated entry points can be exercised in isolation.
+    fn grant(env: &Env, client: &SupplyChainTrackerClient, who: &Address, role: u32) {
+        env.as_contract(&client.address, || {
+            let key = soroban_sdk::Symbol::new(env, "roles");
+            let mut roles: Map<Address, u32> =
+                env.storage().instance().get(&key).unwrap_or(Map::new(env));
+            let current = roles.get(who.clone()).unwrap_or(0);
+            roles.set(who.clone(), current | role);
+            env.storage().instance().set(&key, &roles);
+        });
+    }
+
     fn loc(env: &Env, name: &str) -> Location {
         Location {
-            latitude: 18.5944f64,
-            longitude: -72.3074f64,
+            latitude: 18_594_400i64,
+            longitude: -72_307_400i64,
             address: str(env, name),
             facility_name: str(env, name),
             contact_person: str(env, "Contact Person"),
@@ -902,19 +916,18 @@ mod supply_chain_tests {
         let env = make_env();
         let client = deploy(&env);
         let donor = Address::generate(&env);
+        grant(&env, &client, &donor, ROLE_NGO);
 
         client.create_shipment(
             &donor,
             &str(&env, "ship_001"),
             &str(&env, "donor_red_cross"),
             &str(&env, "medicine"),
-            &u256(500),
+            &u256(&env, 500),
             &str(&env, "kg"),
             &loc(&env, "Geneva Warehouse"),
             &loc(&env, "Port-au-Prince Clinic"),
             &9_999_999_999u64,
-            &None,
-            &Vec::new(&env),
         );
 
         let ship = client.get_shipment(&str(&env, "ship_001"));
@@ -931,19 +944,19 @@ mod supply_chain_tests {
         let client = deploy(&env);
         let donor = Address::generate(&env);
         let verifier = Address::generate(&env);
+        grant(&env, &client, &donor, ROLE_NGO);
+        grant(&env, &client, &verifier, ROLE_NGO);
 
         client.create_shipment(
             &donor,
             &str(&env, "ship_cp"),
             &str(&env, "donor_001"),
             &str(&env, "food"),
-            &u256(1_000),
+            &u256(&env, 1_000),
             &str(&env, "boxes"),
             &loc(&env, "Origin Warehouse"),
             &loc(&env, "Distribution Center"),
             &9_999_999_999u64,
-            &None,
-            &Vec::new(&env),
         );
 
         // Add 3 checkpoints to trigger "at_checkpoint" status
@@ -953,7 +966,7 @@ mod supply_chain_tests {
                 &verifier,
                 &str(&env, "ship_cp"),
                 &loc(&env, "Transit Point"),
-                &u256(1_000),
+                &u256(&env, 1_000),
                 &str(&env, "good"),
                 &Vec::new(&env),
                 &str(&env, "All good"),
@@ -972,26 +985,26 @@ mod supply_chain_tests {
         let client = deploy(&env);
         let donor = Address::generate(&env);
         let recipient = Address::generate(&env);
+        grant(&env, &client, &donor, ROLE_NGO);
+        grant(&env, &client, &recipient, ROLE_RECIPIENT);
 
         client.create_shipment(
             &donor,
             &str(&env, "ship_del"),
             &str(&env, "donor_002"),
             &str(&env, "water"),
-            &u256(200),
+            &u256(&env, 200),
             &str(&env, "liters"),
             &loc(&env, "Source"),
             &loc(&env, "Destination"),
             &9_999_999_999u64,
-            &None,
-            &Vec::new(&env),
         );
 
         client.confirm_delivery(
             &recipient,
             &str(&env, "ship_del"),
             &str(&env, "recipient_001"),
-            &u256(195),
+            &u256(&env, 195),
             &str(&env, "Good condition, minor spillage"),
             &Vec::new(&env),
         );
@@ -1006,19 +1019,19 @@ mod supply_chain_tests {
         let client = deploy(&env);
         let donor = Address::generate(&env);
         let transporter = Address::generate(&env);
+        grant(&env, &client, &donor, ROLE_NGO);
+        grant(&env, &client, &transporter, ROLE_TRANSPORTER);
 
         client.create_shipment(
             &donor,
             &str(&env, "ship_trans"),
             &str(&env, "donor_003"),
             &str(&env, "shelter_kits"),
-            &u256(50),
+            &u256(&env, 50),
             &str(&env, "units"),
             &loc(&env, "Depot"),
             &loc(&env, "Camp"),
             &9_999_999_999u64,
-            &None,
-            &Vec::new(&env),
         );
 
         client.assign_transporter(&donor, &str(&env, "ship_trans"), &transporter);
@@ -1033,26 +1046,26 @@ mod supply_chain_tests {
         let client = deploy(&env);
         let donor = Address::generate(&env);
         let recipient = Address::generate(&env);
+        grant(&env, &client, &donor, ROLE_NGO);
+        grant(&env, &client, &recipient, ROLE_RECIPIENT);
 
         client.create_shipment(
             &donor,
             &str(&env, "ship_hist"),
             &str(&env, "donor_hist"),
             &str(&env, "food"),
-            &u256(300),
+            &u256(&env, 300),
             &str(&env, "kg"),
             &loc(&env, "Origin"),
             &loc(&env, "Dest"),
             &9_999_999_999u64,
-            &None,
-            &Vec::new(&env),
         );
 
         client.confirm_delivery(
             &recipient,
             &str(&env, "ship_hist"),
             &str(&env, "recipient_hist"),
-            &u256(300),
+            &u256(&env, 300),
             &str(&env, "Perfect condition"),
             &Vec::new(&env),
         );
@@ -1069,37 +1082,40 @@ mod supply_chain_tests {
         let client = deploy(&env);
         let donor = Address::generate(&env);
         let verifier = Address::generate(&env);
-
-        let temp_req = TemperatureRequirements {
-            min_temp: 2.0f64,
-            max_temp: 8.0f64,
-            critical: true,
-        };
+        grant(&env, &client, &donor, ROLE_NGO);
+        grant(&env, &client, &verifier, ROLE_NGO);
 
         client.create_shipment(
             &donor,
             &str(&env, "ship_cold"),
             &str(&env, "donor_pharma"),
             &str(&env, "vaccines"),
-            &u256(1_000),
+            &u256(&env, 1_000),
             &str(&env, "doses"),
             &loc(&env, "Lab"),
             &loc(&env, "Clinic"),
             &9_999_999_999u64,
-            &Some(temp_req),
-            &Vec::new(&env),
         );
 
-        // Temperature of 20°C exceeds 2–8°C range — should panic
+        // Require 2.0–8.0°C (stored as tenths of a degree: 20–80), critical.
+        client.set_temperature_requirements(
+            &donor,
+            &str(&env, "ship_cold"),
+            &20i64,
+            &80i64,
+            &true,
+        );
+
+        // Temperature of 20.0°C (200 tenths) exceeds the 8.0°C max — should panic
         client.add_checkpoint(
             &verifier,
             &str(&env, "ship_cold"),
             &loc(&env, "Customs"),
-            &u256(1_000),
+            &u256(&env, 1_000),
             &str(&env, "damaged"),
             &Vec::new(&env),
             &str(&env, "Left in sun"),
-            &Some(20.0f64),
+            &Some(200i64),
         );
     }
 }
@@ -1172,7 +1188,7 @@ mod anti_fraud_tests {
         let (is_clean, risk_factors) = client.monitor_transaction(
             &str(&env, "ben_monitor"),
             &str(&env, "merchant_001"),
-            &u256(50),
+            &u256(&env, 50),
             &1_000u64,
             &str(&env, "tx_hash_abc123"),
         );

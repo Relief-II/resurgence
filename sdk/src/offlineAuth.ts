@@ -28,20 +28,21 @@ export class OfflineAuthClient {
   ): OfflineAuthCode {
     const expiresAt = Date.now() + (validityMinutes * 60 * 1000);
     const timestamp = Date.now();
-    
-    // Create time-based signature
-    const signatureData = `${idHash}:${timestamp}:${expiresAt}:${identity.trustScore}`;
+
+    // Use the truncated id consistently in both generation and validation
+    const shortId = idHash.substring(0, 16);
+    const signatureData = `${shortId}:${timestamp}:${expiresAt}:${identity.trustScore}`;
     const signature = SHA256(signatureData).toString();
-    
+
     // Generate compact QR code data
     const qrData = {
       v: 1, // version
-      id: idHash.substring(0, 16), // Shortened for QR size
+      id: shortId,
       ts: timestamp,
       exp: expiresAt,
       trust: identity.trustScore,
       loc: identity.campLocation,
-      sig: signature.substring(0, 32) // Shortened signature
+      sig: signature.substring(0, 32)
     };
 
     return {

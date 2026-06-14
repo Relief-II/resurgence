@@ -1,28 +1,30 @@
-import { 
-  Server, 
-  TransactionBuilder, 
-  Networks, 
-  Keypair, 
+import {
+  rpc,
+  TransactionBuilder,
+  Networks,
+  Keypair,
   Contract,
   Address,
   nativeToScVal,
   scValToNative
 } from 'stellar-sdk';
-import { 
-  EmergencyFund, 
-  DisbursementRecord, 
+import {
+  EmergencyFund,
+  DisbursementRecord,
   DeploymentOptions,
-  NetworkConfig 
+  NetworkConfig
 } from './types';
 
+type SendResult = { status: string; resultMetaXdr?: unknown; hash?: string };
+
 export class AidClient {
-  private server: Server;
+  private server: rpc.Server;
   private contract: Contract;
   private config: NetworkConfig;
 
   constructor(config: NetworkConfig) {
     this.config = config;
-    this.server = new Server(config.rpcUrl);
+    this.server = new rpc.Server(config.rpcUrl);
     this.contract = new Contract(config.contractIds.aidRegistry);
   }
 
@@ -69,8 +71,8 @@ export class AidClient {
       .build();
 
     tx.sign(adminKeypair);
-    const result = await this.server.sendTransaction(tx);
-    
+    const result = await this.server.sendTransaction(tx) as unknown as SendResult;
+
     if (result.status === 'SUCCESS') {
       return fundId;
     } else {
@@ -113,8 +115,8 @@ export class AidClient {
       .build();
 
     tx.sign(requesterKeypair);
-    const result = await this.server.sendTransaction(tx);
-    
+    const result = await this.server.sendTransaction(tx) as unknown as SendResult;
+
     if (result.status === 'SUCCESS') {
       return `Disbursement submitted for fund ${fundId}`;
     } else {
@@ -169,10 +171,10 @@ export class AidClient {
       .build();
 
     tx.sign(requesterKeypair);
-    const result = await this.server.sendTransaction(tx);
+    const result = await this.server.sendTransaction(tx) as unknown as SendResult;
 
     if (result.status === 'SUCCESS') {
-      const ids = scValToNative(result.resultMetaXdr) as string[];
+      const ids = scValToNative(result.resultMetaXdr as Parameters<typeof scValToNative>[0]) as string[];
       return ids ?? [];
     } else {
       throw new Error(`Batch disbursement failed: ${result.status}`);
@@ -184,9 +186,12 @@ export class AidClient {
    */
   async getFund(fundId: string): Promise<EmergencyFund | null> {
     try {
-      const result = await this.contract.call("get_fund", nativeToScVal(fundId));
-      const fundData = scValToNative(result.result.retval);
-      return fundData;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result: any = await Promise.resolve(
+        this.contract.call("get_fund", nativeToScVal(fundId))
+      );
+      const fundData = scValToNative(result?.result?.retval ?? result);
+      return fundData as EmergencyFund;
     } catch (error) {
       console.error('Failed to get fund:', error);
       return null;
@@ -198,9 +203,10 @@ export class AidClient {
    */
   async listActiveFunds(): Promise<EmergencyFund[]> {
     try {
-      const result = await this.contract.call("list_active_funds");
-      const funds = scValToNative(result.result.retval);
-      return funds;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result: any = await Promise.resolve(this.contract.call("list_active_funds"));
+      const funds = scValToNative(result?.result?.retval ?? result);
+      return funds as EmergencyFund[];
     } catch (error) {
       console.error('Failed to list active funds:', error);
       return [];
@@ -212,9 +218,12 @@ export class AidClient {
    */
   async getDisbursements(fundId: string): Promise<DisbursementRecord[]> {
     try {
-      const result = await this.contract.call("get_disbursements", nativeToScVal(fundId));
-      const disbursements = scValToNative(result.result.retval);
-      return disbursements;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result: any = await Promise.resolve(
+        this.contract.call("get_disbursements", nativeToScVal(fundId))
+      );
+      const disbursements = scValToNative(result?.result?.retval ?? result);
+      return disbursements as DisbursementRecord[];
     } catch (error) {
       console.error('Failed to get disbursements:', error);
       return [];
@@ -265,8 +274,8 @@ export class AidClient {
       .build();
 
     tx.sign(adminKeypair);
-    const result = await this.server.sendTransaction(tx);
-    
+    const result = await this.server.sendTransaction(tx) as unknown as SendResult;
+
     if (result.status === 'SUCCESS') {
       return 'Expired funds cleaned up successfully';
     } else {
@@ -338,10 +347,10 @@ export class AidClient {
   /**
    * Validate fund QR code
    */
-  validateFundQRCode(qrCodeData: string): boolean {
+  async validateFundQRCode(qrCodeData: string): Promise<boolean> {
     try {
       const data = JSON.parse(qrCodeData);
-      
+
       if (data.type !== 'emergency_fund') {
         return false;
       }
@@ -352,7 +361,8 @@ export class AidClient {
       }
 
       // Verify fund exists on chain
-      return this.getFund(data.fundId).then(fund => fund !== null);
+      const fund = await this.getFund(data.fundId);
+      return fund !== null;
     } catch (error) {
       return false;
     }

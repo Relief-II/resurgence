@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="Resurgence — Stellar Disaster Relief Platform" width="520"/>
+  <img src="docs/logo.svg" alt="Resurgence" width="520"/>
 </p>
 
 # Stellar Disaster Relief & Emergency Payments Platform

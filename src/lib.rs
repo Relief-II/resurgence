@@ -1,5 +1,22 @@
 #![no_std]
+#[macro_use]
+extern crate alloc;
+
 use soroban_sdk::{contract, contractimpl, Address, Env, Symbol, Vec};
+
+/// Convert a `soroban_sdk::String` into a heap `alloc::string::String`.
+///
+/// `String::to_string()` relies on `Display`, which is only available off-chain
+/// (std/test builds). This helper reads the raw UTF-8 bytes via the host and so
+/// works in the `wasm32` contract build as well.
+pub(crate) fn sstr_to_alloc(s: &soroban_sdk::String) -> alloc::string::String {
+    let len = s.len() as usize;
+    let mut buf = alloc::vec![0u8; len];
+    s.copy_into_slice(&mut buf);
+    alloc::string::String::from_utf8(buf).unwrap_or_default()
+}
+
+pub mod rbac;
 
 mod aid_registry;
 mod beneficiary_manager;

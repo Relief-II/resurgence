@@ -164,7 +164,7 @@ export class MerchantClient {
     if (result.status === 'SUCCESS') {
       return scValToNative(result.result.retval);
     } else {
-      throw new NetworkError('process payment', result.status, { merchantId, beneficiaryKey });
+      throw new NetworkError('process payment', result.status, { merchantId });
     }
   }
 
@@ -227,6 +227,9 @@ export class MerchantClient {
     merchantId: string,
     feedbackScore: number // -10 to +10
   ): Promise<string> {
+    if (!Number.isInteger(feedbackScore) || feedbackScore < -10 || feedbackScore > 10) {
+      throw new ValidationError('feedbackScore', 'Must be an integer between -10 and 10');
+    }
     const adminKeypair = Keypair.fromSecret(adminKey);
     const adminAccount = await this.server.getAccount(adminKeypair.publicKey());
 

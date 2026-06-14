@@ -430,7 +430,7 @@ export class TransferClient {
     } catch (error) {
       return {
         success: false,
-        error: `Payment processing failed: ${error}`
+        error: 'Payment processing failed. Please try again.'
       };
     }
   }

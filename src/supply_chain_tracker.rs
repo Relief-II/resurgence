@@ -1,10 +1,11 @@
-use soroban_sdk::{contract, contractimpl, Address, Env, Symbol, String, Vec, Map, U256};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, Symbol, String, Vec, Map, U256};
 
 use crate::rbac::{self, ROLE_NGO, ROLE_TRANSPORTER, ROLE_RECIPIENT};
 
 #[contract]
 pub struct SupplyChainTracker;
 
+#[contracttype]
 #[derive(Clone)]
 pub struct SupplyShipment {
     pub id: String,
@@ -19,21 +20,30 @@ pub struct SupplyShipment {
     pub current_status: String,
     pub checkpoints: Vec<Checkpoint>,
     pub assigned_transporter: Option<Address>,
-    pub temperature_requirements: Option<TemperatureRequirements>,
+    // Cold-chain requirements flattened (nested Option<struct> isn't supported
+    // by the contract type system's ScVal conversion).
+    pub requires_temp_control: bool,
+    pub min_temp: i64,
+    pub max_temp: i64,
+    pub temp_critical: bool,
     pub special_handling: Vec<String>,
     /// The address that created this shipment (used for ownership checks).
     pub creator: Address,
 }
 
+#[contracttype]
 #[derive(Clone)]
 pub struct Location {
-    pub latitude: f64,
-    pub longitude: f64,
+    /// Latitude scaled by 1e6 (e.g. 40.123456 -> 40123456).
+    pub latitude: i64,
+    /// Longitude scaled by 1e6.
+    pub longitude: i64,
     pub address: String,
     pub facility_name: String,
     pub contact_person: String,
 }
 
+#[contracttype]
 #[derive(Clone)]
 pub struct Checkpoint {
     pub id: String,
@@ -44,16 +54,21 @@ pub struct Checkpoint {
     pub condition: String,
     pub photos: Vec<String>,
     pub notes: String,
-    pub temperature: Option<f64>,
+    /// Temperature in tenths of a degree Celsius (e.g. 25.5°C -> 255).
+    pub temperature: Option<i64>,
 }
 
+#[contracttype]
 #[derive(Clone)]
 pub struct TemperatureRequirements {
-    pub min_temp: f64,
-    pub max_temp: f64,
+    /// Minimum temperature in tenths of a degree Celsius.
+    pub min_temp: i64,
+    /// Maximum temperature in tenths of a degree Celsius.
+    pub max_temp: i64,
     pub critical: bool,
 }
 
+#[contracttype]
 #[derive(Clone)]
 pub struct RecipientConfirmation {
     pub shipment_id: String,
@@ -81,11 +96,13 @@ impl SupplyChainTracker {
         origin: Location,
         destination: Location,
         estimated_arrival: u64,
-        temperature_requirements: Option<TemperatureRequirements>,
-        special_handling: Vec<String>,
     ) {
         donor.require_auth();
         rbac::require_role(&env, &donor, ROLE_NGO);
+
+        // Cold-chain requirements and special handling can be set later via
+        // dedicated setters; default to none on creation.
+        let special_handling: Vec<String> = Vec::new(&env);
 
         let shipments_key = Symbol::new(&env, "shipments");
         let mut shipments: Map<String, SupplyShipment> = env
@@ -111,10 +128,53 @@ impl SupplyChainTracker {
             current_status: String::from_str(&env, "in_transit"),
             checkpoints: Vec::new(&env),
             assigned_transporter: None,
-            temperature_requirements,
+            requires_temp_control: false,
+            min_temp: 0,
+            max_temp: 0,
+            temp_critical: false,
             special_handling,
             creator: donor,
         };
+
+        shipments.set(shipment_id, shipment);
+        env.storage().instance().set(&shipments_key, &shipments);
+    }
+
+    /// Set cold-chain temperature requirements for a shipment.
+    ///
+    /// Temperatures are expressed in tenths of a degree Celsius
+    /// (e.g. 8.0°C -> 80). Only the shipment creator (NGO) may set these.
+    pub fn set_temperature_requirements(
+        env: Env,
+        caller: Address,
+        shipment_id: String,
+        min_temp: i64,
+        max_temp: i64,
+        critical: bool,
+    ) {
+        caller.require_auth();
+        rbac::require_role(&env, &caller, ROLE_NGO);
+
+        let shipments_key = Symbol::new(&env, "shipments");
+        let mut shipments: Map<String, SupplyShipment> = env
+            .storage()
+            .instance()
+            .get(&shipments_key)
+            .unwrap_or(Map::new(&env));
+
+        let mut shipment = match shipments.get(shipment_id.clone()) {
+            Some(s) => s,
+            None => panic!("Shipment not found"),
+        };
+
+        if shipment.creator != caller {
+            panic!("Unauthorized: caller is not the shipment creator");
+        }
+
+        shipment.requires_temp_control = true;
+        shipment.min_temp = min_temp;
+        shipment.max_temp = max_temp;
+        shipment.temp_critical = critical;
 
         shipments.set(shipment_id, shipment);
         env.storage().instance().set(&shipments_key, &shipments);
@@ -132,7 +192,7 @@ impl SupplyChainTracker {
         condition: String,
         photos: Vec<String>,
         notes: String,
-        temperature: Option<f64>,
+        temperature: Option<i64>,
     ) {
         verifier.require_auth();
         rbac::require_role(&env, &verifier, ROLE_NGO);
@@ -149,17 +209,17 @@ impl SupplyChainTracker {
             None => panic!("Shipment not found"),
         };
 
-        if let (Some(temp_req), Some(current_temp)) =
-            (&shipment.temperature_requirements, temperature)
-        {
-            if temp_req.critical
-                && (current_temp < temp_req.min_temp || current_temp > temp_req.max_temp)
-            {
-                panic!("Temperature outside required range");
+        if shipment.requires_temp_control {
+            if let Some(current_temp) = temperature {
+                if shipment.temp_critical
+                    && (current_temp < shipment.min_temp || current_temp > shipment.max_temp)
+                {
+                    panic!("Temperature outside required range");
+                }
             }
         }
 
-        let checkpoint_id = format!("cp_{}_{}", shipment_id, env.ledger().timestamp());
+        let checkpoint_id = String::from_str(&env, &format!("cp_{}", env.ledger().timestamp()));
         let checkpoint = Checkpoint {
             id: checkpoint_id,
             location,
@@ -285,11 +345,11 @@ impl SupplyChainTracker {
         if let Some(mut shipment) = shipments.get(shipment_id.clone()) {
             shipment.current_status = String::from_str(&env, "lost");
             let loss_checkpoint = Checkpoint {
-                id: format!("loss_{}", shipment_id),
+                id: String::from_str(&env, &format!("loss_{}", env.ledger().timestamp())),
                 location: shipment.destination.clone(),
                 timestamp: env.ledger().timestamp(),
                 verified_by: reporter,
-                quantity_verified: U256::from_u64(0),
+                quantity_verified: U256::from_u32(&env, 0),
                 condition: String::from_str(&env, "lost"),
                 photos: Vec::new(&env),
                 notes: reason,
@@ -369,11 +429,15 @@ impl SupplyChainTracker {
         result
     }
 
+    /// Track shipments whose latest checkpoint falls within `radius` of the
+    /// given point. Coordinates and radius are integers scaled by 1e6; the
+    /// match uses squared Euclidean distance in that scaled space (sufficient
+    /// for proximity filtering without floating-point math on-chain).
     pub fn track_by_location(
         env: Env,
-        latitude: f64,
-        longitude: f64,
-        radius_km: f64,
+        latitude: i64,
+        longitude: i64,
+        radius: i64,
     ) -> Vec<SupplyShipment> {
         let shipments_key = Symbol::new(&env, "shipments");
         let shipments: Map<String, SupplyShipment> = env
@@ -382,15 +446,14 @@ impl SupplyChainTracker {
             .get(&shipments_key)
             .unwrap_or(Map::new(&env));
         let mut nearby = Vec::new(&env);
+        let radius_sq = (radius as i128) * (radius as i128);
         for (_, shipment) in shipments.iter() {
-            if let Some(latest) = shipment.checkpoints.get(shipment.checkpoints.len() - 1) {
-                let distance = Self::calculate_distance(
-                    latitude,
-                    longitude,
-                    latest.location.latitude,
-                    latest.location.longitude,
-                );
-                if distance <= radius_km {
+            let cp_len = shipment.checkpoints.len();
+            if let Some(latest) = if cp_len > 0 { shipment.checkpoints.get(cp_len - 1) } else { None } {
+                let dlat = (latitude - latest.location.latitude) as i128;
+                let dlon = (longitude - latest.location.longitude) as i128;
+                let dist_sq = dlat * dlat + dlon * dlon;
+                if dist_sq <= radius_sq {
                     nearby.push_back(shipment);
                 }
             }
@@ -407,15 +470,16 @@ impl SupplyChainTracker {
             .unwrap_or(Map::new(&env));
         let mut alerts = Vec::new(&env);
         for (shipment_id, shipment) in shipments.iter() {
-            if let Some(temp_req) = &shipment.temperature_requirements {
+            if shipment.requires_temp_control {
+                let cp_len = shipment.checkpoints.len();
                 if let Some(latest) =
-                    shipment.checkpoints.get(shipment.checkpoints.len() - 1)
+                    if cp_len > 0 { shipment.checkpoints.get(cp_len - 1) } else { None }
                 {
                     if let Some(current_temp) = latest.temperature {
-                        if current_temp < temp_req.min_temp || current_temp > temp_req.max_temp {
+                        if current_temp < shipment.min_temp || current_temp > shipment.max_temp {
                             let alert_msg = format!(
                                 "Temperature breach: {}°C (required: {}-{}°C)",
-                                current_temp, temp_req.min_temp, temp_req.max_temp
+                                current_temp, shipment.min_temp, shipment.max_temp
                             );
                             alerts.push_back((
                                 shipment_id.clone(),
@@ -427,15 +491,5 @@ impl SupplyChainTracker {
             }
         }
         alerts
-    }
-
-    fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
-        let r = 6371.0f64;
-        let dlat = (lat2 - lat1).to_radians();
-        let dlon = (lon2 - lon1).to_radians();
-        let a = (dlat / 2.0).sin().powi(2)
-            + lat1.to_radians().cos() * lat2.to_radians().cos() * (dlon / 2.0).sin().powi(2);
-        let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
-        r * c
     }
 }

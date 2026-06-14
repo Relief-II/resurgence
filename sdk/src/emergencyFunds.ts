@@ -1,14 +1,12 @@
 import {
   Address,
   Contract,
-  Signer,
   Networks,
   TransactionBuilder,
-  FeeBumpTransaction,
-  Operation,
   xdr,
   Keypair,
   BASE_FEE,
+  nativeToScVal,
 } from 'stellar-sdk';
 import axios from 'axios';
 import {
@@ -134,7 +132,7 @@ export class EmergencyFundsClient {
     contractId: string,
     signingKey: Keypair,
     server: any,
-    networkPassphrase: string = Networks.TESTNET_NETWORK_PASSPHRASE
+    networkPassphrase: string = Networks.TESTNET
   ) {
     this.contractId = contractId;
     this.signingKey = signingKey;
@@ -170,17 +168,17 @@ export class EmergencyFundsClient {
         .addOperation(
           contract.call(
             'create_fund',
-            new Address(adminAddress),
-            fundId,
-            name,
-            description,
-            totalAmount,
-            disasterType,
-            geographicScope,
-            expiresAt,
-            signersArray.map(s => new Address(s)),
-            requiredSignatures,
-            metadata
+            new Address(adminAddress).toScVal(),
+            nativeToScVal(fundId),
+            nativeToScVal(name),
+            nativeToScVal(description),
+            nativeToScVal(totalAmount),
+            nativeToScVal(disasterType),
+            nativeToScVal(geographicScope),
+            nativeToScVal(expiresAt),
+            xdr.ScVal.scvVec(signersArray.map(s => new Address(s).toScVal())),
+            nativeToScVal(requiredSignatures),
+            nativeToScVal(metadata)
           )
         )
         .setTimeout(300)
@@ -227,17 +225,17 @@ export class EmergencyFundsClient {
         .addOperation(
           contract.call(
             'add_trigger',
-            new Address(adminAddress),
-            fundId,
-            triggerId,
-            triggerType,
-            threshold,
-            oracleSource,
-            autoReleaseAmount,
-            Math.floor(geofenceLatitude * 1e6),
-            Math.floor(geofenceLongitude * 1e6),
-            geofenceRadiusKm,
-            minOracleConfirmations
+            new Address(adminAddress).toScVal(),
+            nativeToScVal(fundId),
+            nativeToScVal(triggerId),
+            nativeToScVal(triggerType),
+            nativeToScVal(threshold),
+            nativeToScVal(oracleSource),
+            nativeToScVal(autoReleaseAmount),
+            nativeToScVal(Math.floor(geofenceLatitude * 1e6)),
+            nativeToScVal(Math.floor(geofenceLongitude * 1e6)),
+            nativeToScVal(geofenceRadiusKm),
+            nativeToScVal(minOracleConfirmations)
           )
         )
         .setTimeout(300)
@@ -279,13 +277,13 @@ export class EmergencyFundsClient {
         .addOperation(
           contract.call(
             'submit_oracle_data',
-            new Address(oracleAddress),
-            fundId,
-            triggerId,
-            dataType,
-            value,
-            location,
-            confidence
+            new Address(oracleAddress).toScVal(),
+            nativeToScVal(fundId),
+            nativeToScVal(triggerId),
+            nativeToScVal(dataType),
+            nativeToScVal(value),
+            nativeToScVal(location),
+            nativeToScVal(confidence)
           )
         )
         .setTimeout(300)
@@ -323,8 +321,8 @@ export class EmergencyFundsClient {
         .addOperation(
           contract.call(
             'execute_trigger',
-            fundId,
-            triggerId
+            nativeToScVal(fundId),
+            nativeToScVal(triggerId)
           )
         )
         .setTimeout(300)
@@ -374,10 +372,10 @@ export class EmergencyFundsClient {
         .addOperation(
           contract.call(
             'submit_batch_disbursement',
-            new Address(approvers[0].publicKey()),
-            fundId,
-            entries.map(e => [new Address(e.beneficiary), e.amount, e.purpose]),
-            approvers.map(a => new Address(a.publicKey()))
+            new Address(approvers[0].publicKey()).toScVal(),
+            nativeToScVal(fundId),
+            nativeToScVal(entries.map(e => [e.beneficiary, e.amount, e.purpose])),
+            xdr.ScVal.scvVec(approvers.map(a => new Address(a.publicKey()).toScVal()))
           )
         )
         .setTimeout(300)
@@ -414,17 +412,17 @@ export class EmergencyFundsClient {
       const contract = new Contract(this.contractId);
 
       const transaction = new TransactionBuilder(primaryAccount, {
-        fee: BASE_FEE * approvers.length,
+        fee: String(Number(BASE_FEE) * approvers.length),
         networkPassphrase: this.networkPassphrase,
       })
         .addOperation(
           contract.call(
             'execute_multi_sig_release',
-            fundId,
-            new Address(beneficiary),
-            amount,
-            purpose,
-            approvers.map(a => new Address(a.publicKey()))
+            nativeToScVal(fundId),
+            new Address(beneficiary).toScVal(),
+            nativeToScVal(amount),
+            nativeToScVal(purpose),
+            xdr.ScVal.scvVec(approvers.map(a => new Address(a.publicKey()).toScVal()))
           )
         )
         .setTimeout(300)
@@ -475,14 +473,14 @@ export class EmergencyFundsClient {
         .addOperation(
           contract.call(
             'allocate_funds',
-            new Address(adminAddress),
-            fundId,
-            sector,
-            amount,
-            beneficiaries.map(b => new Address(b)),
-            proofOfNeed,
-            minAmount,
-            maxAmount
+            new Address(adminAddress).toScVal(),
+            nativeToScVal(fundId),
+            nativeToScVal(sector),
+            nativeToScVal(amount),
+            xdr.ScVal.scvVec(beneficiaries.map(b => new Address(b).toScVal())),
+            nativeToScVal(proofOfNeed),
+            nativeToScVal(minAmount),
+            nativeToScVal(maxAmount)
           )
         )
         .setTimeout(300)
@@ -592,8 +590,8 @@ export class EmergencyFundsClient {
         .addOperation(
           contract.call(
             'recall_unused_funds',
-            new Address(donorAddress),
-            fundId
+            new Address(donorAddress).toScVal(),
+            nativeToScVal(fundId)
           )
         )
         .setTimeout(300)
@@ -630,8 +628,8 @@ export class EmergencyFundsClient {
         .addOperation(
           contract.call(
             'enable_recall',
-            new Address(adminAddress),
-            fundId
+            new Address(adminAddress).toScVal(),
+            nativeToScVal(fundId)
           )
         )
         .setTimeout(300)
@@ -668,9 +666,9 @@ export class EmergencyFundsClient {
         .addOperation(
           contract.call(
             'deactivate_trigger',
-            new Address(adminAddress),
-            fundId,
-            triggerId
+            new Address(adminAddress).toScVal(),
+            nativeToScVal(fundId),
+            nativeToScVal(triggerId)
           )
         )
         .setTimeout(300)
@@ -707,9 +705,9 @@ export class EmergencyFundsClient {
         .addOperation(
           contract.call(
             'update_metadata',
-            new Address(adminAddress),
-            fundId,
-            metadata
+            new Address(adminAddress).toScVal(),
+            nativeToScVal(fundId),
+            nativeToScVal(metadata)
           )
         )
         .setTimeout(300)
