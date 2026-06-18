@@ -2,7 +2,7 @@
   <img src="docs/logo.svg" alt="Resurgence" width="520"/>
 </p>
 
-# Stellar Disaster Relief & Emergency Payments Platform
+# Resurgence
 
 A comprehensive blockchain-based disaster relief platform built on Stellar, providing secure, transparent, and efficient emergency payments and aid distribution for humanitarian organizations.
 
